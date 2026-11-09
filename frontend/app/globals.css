@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh; /* mobile: excludes the collapsing browser toolbar */
+  overflow: hidden;
+  overscroll-behavior: none;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  user-select: none;
+}
+
+/* Touch: no 300ms double-tap-zoom delay on controls; the 3D canvas owns all gestures */
+button {
+  touch-action: manipulation;
+}
+canvas {
+  touch-action: none;
+}
+
+/* Horizontally scrollable rails (walk bar, vitals) without a visible scrollbar */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Exam modals on phones: full-width bottom sheets ---------- */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .exam-overlay {
+    padding: 0 !important;
+    align-items: flex-end !important;
+  }
+  .exam-card {
+    width: 100% !important;
+    max-height: 100dvh !important;
+    border-radius: 22px 22px 0 0 !important;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .exam-card > div {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .exam-card h1,
+  .exam-card h2 {
+    font-size: 19px !important;
+    line-height: 1.25;
+  }
+  .exam-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .exam-grid-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .exam-actions {
+    flex-direction: column-reverse;
+    align-items: stretch !important;
+  }
+  .exam-actions > button {
+    justify-content: center;
+    min-height: 46px;
+  }
+}
+
+/* Fingers need bigger targets than mouse pointers */
+@media (pointer: coarse) {
+  .exam-card button {
+    min-height: 42px;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+/* ---------- LIQUID GLASS SURFACE SYSTEM (LIGHT & DARK MODE) ---------- */
+.liquid-glass-light {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.48) 50%,
+    rgba(240, 247, 255, 0.64) 100%
+  );
+  backdrop-filter: blur(28px) saturate(190%) brightness(1.04);
+  -webkit-backdrop-filter: blur(28px) saturate(190%) brightness(1.04);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.35),
+    0 20px 48px -12px rgba(15, 23, 42, 0.16),
+    0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.liquid-glass-dark {
+  background: linear-gradient(
+    135deg,
+    rgba(19, 28, 46, 0.72) 0%,
+    rgba(11, 17, 30, 0.56) 52%,
+    rgba(23, 37, 64, 0.66) 100%
+  );
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 1px 0 rgba(56, 189, 248, 0.12),
+    0 24px 56px -12px rgba(2, 6, 23, 0.72),
+    0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.liquid-subcard-light {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.78) 0%,
+    rgba(248, 250, 252, 0.58) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.liquid-subcard-dark {
+  background: linear-gradient(
+    145deg,
+    rgba(30, 41, 59, 0.62) 0%,
+    rgba(15, 23, 42, 0.48) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    0 8px 20px rgba(2, 6, 23, 0.38);
+}
+
+@keyframes pulseAlarm {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+  }
+  50% {
+    opacity: 0.88;
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+
+.alarm-pulse {
+  animation: pulseAlarm 1.5s infinite ease-in-out;
+}
