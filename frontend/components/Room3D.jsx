@@ -1096,7 +1096,60 @@ function InteractiveHotspot({
   );
 }
 
-/* ---------- 1. Hospital Bed (GLB + PBR Metallic Frame & Matte Mattress) ---------- */
+/* ---------- 1. Hospital Bed (GLB + PBR Metallic Frame & Quilted Coverlet) ---------- */
+function makeQuiltedBlanketTexture() {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+
+  // Warm oat/beige quilted comforter tone from reference photo
+  g.fillStyle = '#d7cab5';
+  g.fillRect(0, 0, size, size);
+
+  // Subtle puffy shading inside each quilted square
+  const step = 64;
+  for (let y = 0; y < size; y += step) {
+    for (let x = 0; x < size; x += step) {
+      const grad = g.createRadialGradient(
+        x + step * 0.48,
+        y + step * 0.45,
+        4,
+        x + step * 0.5,
+        y + step * 0.5,
+        step * 0.65
+      );
+      grad.addColorStop(0, 'rgba(255, 252, 245, 0.22)');
+      grad.addColorStop(0.7, 'rgba(215, 202, 181, 0.0)');
+      grad.addColorStop(1, 'rgba(130, 114, 92, 0.24)');
+      g.fillStyle = grad;
+      g.fillRect(x, y, step, step);
+    }
+  }
+
+  // Quilted stitch lines
+  g.strokeStyle = 'rgba(138, 122, 100, 0.45)';
+  g.lineWidth = 2;
+  for (let i = 0; i <= size; i += step) {
+    g.beginPath();
+    g.moveTo(i, 0);
+    g.lineTo(i, size);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(0, i);
+    g.lineTo(size, i);
+    g.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3.5, 4);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function HospitalBedGLB({
   bedAngle,
   bedObj,
@@ -1107,6 +1160,7 @@ function HospitalBedGLB({
   const { scene: bedScene } = useGLTF('/models/hospital_bed_carlos.glb');
   const { scene: pillowScene } = useGLTF('/models/pillow.glb');
   const backrestRef = useRef();
+  const quiltTex = useMemo(() => makeQuiltedBlanketTexture(), []);
 
   const fittedBed = useMemo(
     () =>
@@ -1172,6 +1226,7 @@ function HospitalBedGLB({
       minX: b.min.x,
       maxX: b.max.x,
       minZ: b.min.z,
+      minY: b.min.y,
       maxZ: b.max.z,
     });
     return () => unregisterObstacle('hospital_bed');
@@ -1180,6 +1235,52 @@ function HospitalBedGLB({
   return (
     <group onClick={selectBed}>
       <primitive object={fittedBed} />
+
+      {/* Quilted warm-beige hospital coverlet + crisp white turned-down top sheet (matches reference photo) */}
+      <group position={[0, 1.115, 0.56]}>
+        <RoundedBox
+          args={[0.92, 0.055, 1.04]}
+          radius={0.024}
+          castShadow
+          receiveShadow
+        >
+          <meshPhysicalMaterial
+            map={quiltTex}
+            color="#ffffff"
+            roughness={0.86}
+            metalness={0}
+            sheen={0.65}
+            sheenRoughness={0.7}
+            sheenColor="#f5efe6"
+          />
+        </RoundedBox>
+        {/* Crisp white folded top-sheet cuff at the top edge of the quilted blanket */}
+        <RoundedBox
+          args={[0.93, 0.058, 0.14]}
+          position={[0, 0.004, -0.49]}
+          radius={0.018}
+          castShadow
+          receiveShadow
+        >
+          <meshPhysicalMaterial
+            color="#f8f7f4"
+            roughness={0.84}
+            metalness={0}
+            sheen={0.5}
+            sheenColor="#ffffff"
+          />
+        </RoundedBox>
+      </group>
+
+      {/* Footboard warm woodgrain inset panel & slate-blue bumper trim (from reference photo) */}
+      <group position={[0, 0.94, 1.335]}>
+        <RoundedBox args={[0.68, 0.24, 0.018]} radius={0.008} position={[0, 0.04, 0]}>
+          <meshStandardMaterial color="#d8b28a" roughness={0.48} />
+        </RoundedBox>
+        <RoundedBox args={[0.84, 0.048, 0.026]} radius={0.012} position={[0, -0.11, 0.006]}>
+          <meshStandardMaterial color="#425c8a" roughness={0.45} />
+        </RoundedBox>
+      </group>
 
       {/* Articulating backrest wedge + pillow under the patient's upper torso */}
       <group ref={backrestRef} position={[0, 1.06, -0.32]}>
@@ -1193,8 +1294,8 @@ function HospitalBedGLB({
           >
             <meshPhysicalMaterial
               {...MATTE_FABRIC}
-              color="#cce7de"
-              sheenColor="#f0fdf4"
+              color="#f8f6f0"
+              sheenColor="#ffffff"
             />
           </RoundedBox>
         )}

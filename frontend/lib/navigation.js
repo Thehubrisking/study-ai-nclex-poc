@@ -27,6 +27,8 @@ const STATIC_OBSTACLES = {
   monitor_stand_base: { minX: 1.28, maxX: 1.92, minZ: -1.02, maxZ: -0.38 },
   ehr_cart: { minX: 1.5, maxX: 2.2, minZ: 0.2, maxZ: 0.9 },
   privacy_curtain: { minX: 2.66, maxX: 2.84, minZ: ROOM.minZ, maxZ: -0.08 },
+  window_sofa: { minX: -3.0, maxX: -2.22, minZ: 0.48, maxZ: 2.62 },
+  corner_recliner: { minX: -2.85, maxX: -2.08, minZ: -0.88, maxZ: -0.12 },
 };
 
 export const NAV = {
