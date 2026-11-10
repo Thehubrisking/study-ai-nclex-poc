@@ -1078,7 +1078,173 @@ function PrivacyCurtain({ theme }) {
   );
 }
 
-/* ---------------- Physically-Based Warm Clinical Lighting Rig ---------------- */
+/* ---------------- RDR2-Style Volumetric God-Rays & Drifting Dust Motes ---------------- */
+
+const noRaycast = () => {};
+
+function makeVolumetricBeamMaterial(colorHex, maxOpacity = 0.11) {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    uniforms: {
+      uColor: { value: new THREE.Color(colorHex) },
+      uOpacity: { value: maxOpacity },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vNormalW;
+      varying vec3 vViewDir;
+      void main() {
+        vUv = uv;
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vNormalW = normalize(mat3(modelMatrix) * normal);
+        vViewDir = normalize(cameraPosition - worldPos.xyz);
+        gl_Position = projectionMatrix * viewMatrix * worldPos;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      varying vec3 vNormalW;
+      varying vec3 vViewDir;
+      void main() {
+        // Soft bell curve across width + smooth decay from light source (vUv.y = 1) to floor (vUv.y = 0)
+        float across = pow(sin(vUv.x * 3.14159265), 1.6);
+        float along = pow(vUv.y, 0.85) * smoothstep(0.0, 0.18, vUv.y) * smoothstep(1.0, 0.82, vUv.y);
+        // Hide sheet edges when viewed at grazing angles
+        float facing = pow(abs(dot(normalize(vNormalW), normalize(vViewDir))), 0.65);
+        float alpha = across * along * facing * uOpacity;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+  });
+}
+
+function VolumetricLightShafts({ night }) {
+  const windowBeamMat = useMemo(
+    () => makeVolumetricBeamMaterial(night ? '#7dd3fc' : '#bae6fd', night ? 0.11 : 0.13),
+    [night]
+  );
+  const warmBeamMat = useMemo(
+    () => makeVolumetricBeamMaterial('#fde68a', night ? 0.095 : 0.08),
+    [night]
+  );
+
+  return (
+    <group>
+      {/* Crossed volumetric twilight shafts slanting from the picture window across the sofa & bed */}
+      {[1.15, 1.62, 2.08].map((zPos, i) => (
+        <group
+          key={i}
+          position={[-1.55, 1.18, zPos]}
+          rotation={[0, 0, -0.62]}
+        >
+          <mesh material={windowBeamMat} raycast={noRaycast}>
+            <planeGeometry args={[0.92, 2.95]} />
+          </mesh>
+          <mesh
+            material={windowBeamMat}
+            rotation={[0, Math.PI / 2.6, 0]}
+            raycast={noRaycast}
+          >
+            <planeGeometry args={[0.85, 2.95]} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Warm golden overhead volumetric wash cone descending from the 2x4 bed troffer & headwall cove */}
+      <group position={[0.05, 1.92, -0.05]}>
+        <mesh material={warmBeamMat} raycast={noRaycast}>
+          <planeGeometry args={[1.65, 1.9]} />
+        </mesh>
+        <mesh
+          material={warmBeamMat}
+          rotation={[0, Math.PI / 2, 0]}
+          raycast={noRaycast}
+        >
+          <planeGeometry args={[1.45, 1.9]} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function AtmosphericDustMotes() {
+  const pointsRef = useRef();
+  const count = 135;
+
+  const { geo, basePositions, phases } = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(count * 3);
+    const base = new Float32Array(count * 3);
+    const ph = new Float32Array(count);
+    const rnd = seededRandom(409);
+
+    for (let i = 0; i < count; i++) {
+      // Concentrate motes along the window light shaft and above the bed
+      const inWindowBeam = i < count * 0.6;
+      const x = inWindowBeam ? -2.6 + rnd() * 2.4 : -1.1 + rnd() * 2.4;
+      const y = 0.45 + rnd() * 2.15;
+      const z = inWindowBeam ? 0.55 + rnd() * 2.05 : -1.35 + rnd() * 2.6;
+      pos[i * 3] = base[i * 3] = x;
+      pos[i * 3 + 1] = base[i * 3 + 1] = y;
+      pos[i * 3 + 2] = base[i * 3 + 2] = z;
+      ph[i] = rnd() * Math.PI * 2;
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    return { geo: g, basePositions: base, phases: ph };
+  }, []);
+
+  const moteTex = useMemo(() => {
+    if (typeof document === 'undefined') return null;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(255, 250, 235, 1)');
+    grad.addColorStop(0.4, 'rgba(254, 240, 195, 0.55)');
+    grad.addColorStop(1, 'rgba(254, 240, 195, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  }, []);
+
+  useFrame(({ clock }) => {
+    if (!pointsRef.current) return;
+    const t = clock.elapsedTime;
+    const attr = pointsRef.current.geometry.attributes.position;
+    const arr = attr.array;
+    for (let i = 0; i < count; i++) {
+      const p = phases[i];
+      arr[i * 3] = basePositions[i * 3] + Math.sin(t * 0.28 + p) * 0.09;
+      arr[i * 3 + 1] =
+        0.4 +
+        ((basePositions[i * 3 + 1] - 0.4 + t * 0.025 + Math.cos(t * 0.22 + p) * 0.04) % 2.2);
+      arr[i * 3 + 2] = basePositions[i * 3 + 2] + Math.cos(t * 0.24 + p * 1.3) * 0.08;
+    }
+    attr.needsUpdate = true;
+  });
+
+  return (
+    <points ref={pointsRef} geometry={geo} raycast={noRaycast}>
+      <pointsMaterial
+        map={moteTex}
+        color="#fef3c7"
+        size={0.038}
+        transparent
+        opacity={0.48}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        sizeAttenuation
+      />
+    </points>
+  );
+}
+
+/* ---------------- Physically-Based Chiaroscuro Cinematic Lighting Rig ---------------- */
 
 export function RoomLighting({ darkMode = false }) {
   const trofferTarget = useMemo(() => new THREE.Object3D(), []);
@@ -1100,22 +1266,22 @@ export function RoomLighting({ darkMode = false }) {
       <primitive object={windowTarget} />
       <primitive object={coveTarget} />
 
-      {/* Warm ceiling-to-floor bounce fill matching the warm beige vinyl & creamy walls */}
+      {/* Restrained ambient & hemisphere fill so shadows retain RDR2-style chiaroscuro depth */}
       <hemisphereLight
         args={[
-          '#fffbf2',
-          '#d6c4a5',
-          night ? 0.65 : 0.72,
+          '#fff6e5',
+          '#786852',
+          night ? 0.36 : 0.44,
         ]}
       />
-      <ambientLight intensity={night ? 0.16 : 0.18} color="#fff8eb" />
+      <ambientLight intensity={night ? 0.06 : 0.08} color="#ffedd5" />
 
-      {/* Main overhead 2x4 LED troffer key light (casts soft grounded bed/nurse shadow onto the beige vinyl floor) */}
+      {/* Main overhead 2x4 LED troffer key light (casts crisp, grounded shadows onto the warm vinyl floor) */}
       <directionalLight
         target={trofferTarget}
         position={[0.65, 4.4, 1.35]}
-        color="#fff8ec"
-        intensity={night ? 2.05 : 2.25}
+        color="#ffefd6"
+        intensity={night ? 2.45 : 2.65}
         castShadow
         shadow-mapSize={[1024, 1024]}
         shadow-bias={-0.0004}
@@ -1128,39 +1294,39 @@ export function RoomLighting({ darkMode = false }) {
         shadow-camera-bottom={-4.8}
       />
 
-      {/* Cool twilight blue-hour skylight entering through the left picture window */}
+      {/* Cool twilight blue-hour directional beam entering through the left picture window */}
       <spotLight
         target={windowTarget}
-        position={[-4.2, 2.1, 1.55]}
-        angle={0.95}
-        penumbra={0.95}
-        intensity={night ? 4.8 : 6.0}
-        color="#93c5fd"
+        position={[-4.2, 2.15, 1.55]}
+        angle={0.88}
+        penumbra={0.92}
+        intensity={night ? 7.2 : 8.5}
+        color="#60a5fa"
         decay={2}
       />
 
-      {/* Recessed headwall soffit cove wash + over-bed warm clinical wash */}
+      {/* Recessed headwall soffit cove wash + over-bed warm amber rim wash */}
       <spotLight
         target={coveTarget}
         position={[0.1, 2.42, ROOM.minZ + 0.35]}
         angle={1.05}
         penumbra={1}
-        intensity={night ? 5.2 : 4.2}
-        color="#fde68a"
+        intensity={night ? 6.8 : 5.4}
+        color="#fcd34d"
         decay={2}
       />
 
-      {/* Warm wall sconce & room fill lights */}
+      {/* Warm frosted wall sconce pool & subtle corridor kick light */}
       <pointLight
         position={[ROOM.minX + 0.28, 1.68, 0.22]}
-        intensity={night ? 2.4 : 1.8}
-        color="#fed7aa"
+        intensity={night ? 3.2 : 2.4}
+        color="#fdba74"
         decay={2}
       />
       <pointLight
         position={[1.75, 2.65, 1.85]}
-        intensity={night ? 2.4 : 2.6}
-        color="#fff9ed"
+        intensity={night ? 1.65 : 1.95}
+        color="#ffedd5"
         decay={2}
       />
     </>
@@ -1273,6 +1439,8 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
       </group>
 
       <PrivacyCurtain theme={theme} />
+      <VolumetricLightShafts night={darkMode} />
+      <AtmosphericDustMotes />
     </group>
   );
 }

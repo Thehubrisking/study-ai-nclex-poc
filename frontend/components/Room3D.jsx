@@ -812,9 +812,8 @@ function CameraRig({
   const isAnimatingRef = useRef(false);
   const animTimerRef = useRef(0);
   const introTimerRef = useRef(introTrigger > 0 ? 0 : 99);
-  const goalPos = useMemo(() => new THREE.Vector3(0.95, 1.82, 3.65), []);
+  const goalPos = useMemo(() => new THREE.Vector3(0.95, 1.72, 3.35), []);
   const goalTarget = useMemo(() => new THREE.Vector3(0, 1.15, -0.2), []);
-  const _shoulderOffset = useMemo(() => new THREE.Vector3(), []);
   const _behind = useMemo(() => new THREE.Vector3(), []);
   const _outward = useMemo(() => new THREE.Vector3(), []);
   const _camDir = useMemo(() => new THREE.Vector3(), []);
@@ -827,7 +826,7 @@ function CameraRig({
   useEffect(() => {
     if (introTrigger === 0) return;
     introTimerRef.current = 0;
-    camera.position.set(0.35, 2.25, 5.4);
+    camera.position.set(0.55, 1.88, 4.95);
   }, [introTrigger, camera]);
 
   useEffect(() => {
@@ -839,8 +838,25 @@ function CameraRig({
     animTimerRef.current = 0;
   }, [cameraFocusId, cameraTrigger, cameraMode, goalPos, goalTarget]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const st = nurseStateRef.current;
+    const elapsed = state.clock.elapsedTime;
+
+    // Smoothly interpolate camera FOV like a cinema prime lens (tighter on inspection / cinematic cam)
+    const targetFov =
+      frozen
+        ? 42
+        : cameraMode === 'cinematic'
+          ? 35
+          : cameraMode === 'third_person'
+            ? st.isWalking || st.manualWalk
+              ? 43
+              : 38
+            : 44;
+    if (Math.abs(camera.fov - targetFov) > 0.05) {
+      camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, Math.min(1, delta * 3.5));
+      camera.updateProjectionMatrix();
+    }
 
     // 0. Frozen exam gate (pre-briefing / exit questions / report): hold a still, wide establishing shot
     if (frozen) {
@@ -856,51 +872,31 @@ function CameraRig({
     if (introTimerRef.current < 4.0) {
       introTimerRef.current += delta;
       const wp = STATION_WAYPOINTS.overview;
-      goalPos.set(...wp.otsCam);
+      goalPos.set(wp.otsCam[0], 1.68, wp.otsCam[2] - 0.35);
       goalTarget.set(...wp.lookAt);
-      camera.position.lerp(goalPos, Math.min(1, delta * 1.8));
+      camera.position.lerp(goalPos, Math.min(1, delta * 1.6));
       if (controlsRef.current) {
-        controlsRef.current.target.lerp(goalTarget, Math.min(1, delta * 2.4));
+        controlsRef.current.target.lerp(goalTarget, Math.min(1, delta * 2.2));
         controlsRef.current.update();
       }
       return;
     }
 
-    // 2. Over-the-Shoulder 3rd-Person Follow Mode
-    if (cameraMode === 'third_person') {
-      if (st.manualWalk || st.isWalking) {
-        // Follow from behind, but bias the camera toward the room's open/outer side so it always
-        // looks INTO the room (never at the open cutaway front, never wedged behind the bed).
-        _behind.set(-Math.sin(st.yaw), 0, -Math.cos(st.yaw));
-        _outward.set(st.pos.x - ROOM_FOCUS.x, 0, st.pos.z - ROOM_FOCUS.z);
-        const outLen = _outward.length();
-        if (outLen > 1e-3) _outward.multiplyScalar(1 / outLen);
-        const outwardBias = THREE.MathUtils.clamp(outLen / 1.6, 0.35, 1.0) * 1.4;
-        _camDir.copy(_behind).addScaledVector(_outward, outwardBias).normalize();
-        goalPos.copy(st.pos).addScaledVector(_camDir, 2.3);
-        goalPos.y = 2.05;
-        // Look past the nurse toward the room centre so she sits in the lower third
-        goalTarget
-          .copy(st.pos)
-          .lerp(ROOM_FOCUS, 0.45);
-        goalTarget.y = 1.0;
-      } else {
-        // Station inspection: stand back and to the right of the nurse, raised, so her head
-        // never hides the device; frame the device left-of-centre (drawer opens on the right)
-        _toTarget.set(st.lookTarget.x - st.pos.x, 0, st.lookTarget.z - st.pos.z);
-        if (_toTarget.lengthSq() < 1e-4) _toTarget.set(0, 0, -1);
-        _toTarget.normalize();
-        _right.set(-_toTarget.z, 0, _toTarget.x);
-        goalPos
-          .copy(st.pos)
-          .addScaledVector(_toTarget, -1.05)
-          .addScaledVector(_right, 0.85);
-        goalPos.y = 1.95;
-        goalTarget.copy(st.lookTarget).addScaledVector(_right, 0.38);
-      }
+    // 2. RDR2-Style Cinematic Camera Mode (slow sweeping anamorphic dolly around the nurse & bedside)
+    if (cameraMode === 'cinematic') {
+      const orbitAngle = elapsed * 0.16;
+      const radius = st.isWalking || st.manualWalk ? 2.15 : 2.35;
+      const focusCenter = st.isWalking || st.manualWalk ? st.pos : st.lookTarget;
+      goalPos.set(
+        focusCenter.x + Math.sin(orbitAngle) * radius + 0.65,
+        1.48 + Math.sin(elapsed * 0.45) * 0.14,
+        focusCenter.z + Math.cos(orbitAngle) * radius + 0.95
+      );
+      goalTarget.copy(st.pos).lerp(ROOM_FOCUS, 0.55);
+      goalTarget.y = 1.18 + Math.cos(elapsed * 0.6) * 0.03;
       clampInsideRoom(goalPos);
 
-      const step = Math.min(1, delta * 4.0);
+      const step = Math.min(1, delta * 2.4);
       camera.position.lerp(goalPos, step);
       if (controlsRef.current) {
         controlsRef.current.target.lerp(goalTarget, step);
@@ -909,12 +905,62 @@ function CameraRig({
       return;
     }
 
-    // 3. Free Orbit Mode (smoothly dollies on station click, then releases to user orbit)
-    // Never let the user orbit/zoom through the headwall or window wall into the void
+    // 3. Over-the-Shoulder 3rd-Person Follow Mode (grounded RDR2 shoulder height + organic stride sway)
+    if (cameraMode === 'third_person') {
+      const speedNorm = THREE.MathUtils.clamp((st.speed || 0) / WALK_SPEED, 0, 1);
+      const strideBobY = Math.cos(elapsed * 9.2) * 0.013 * speedNorm;
+      const strideSwayX = Math.sin(elapsed * 4.6) * 0.01 * speedNorm;
+      const breathDriftY = Math.sin(elapsed * 1.25) * 0.006 * (1 - speedNorm);
+
+      if (st.manualWalk || st.isWalking) {
+        // Follow from behind and over the right shoulder, biased toward the room's open interior
+        _behind.set(-Math.sin(st.yaw), 0, -Math.cos(st.yaw));
+        _right.set(-_behind.z, 0, _behind.x);
+        _outward.set(st.pos.x - ROOM_FOCUS.x, 0, st.pos.z - ROOM_FOCUS.z);
+        const outLen = _outward.length();
+        if (outLen > 1e-3) _outward.multiplyScalar(1 / outLen);
+        const outwardBias = THREE.MathUtils.clamp(outLen / 1.6, 0.35, 1.0) * 1.25;
+        _camDir.copy(_behind).addScaledVector(_outward, outwardBias).normalize();
+        goalPos
+          .copy(st.pos)
+          .addScaledVector(_camDir, 1.95)
+          .addScaledVector(_right, 0.34 + strideSwayX);
+        goalPos.y = 1.68 + strideBobY;
+        // Look past the nurse's shoulder into the room
+        goalTarget
+          .copy(st.pos)
+          .lerp(ROOM_FOCUS, 0.48);
+        goalTarget.y = 1.12 + strideBobY * 0.5;
+      } else {
+        // Station inspection: medium-close 50mm over-the-shoulder composition
+        _toTarget.set(st.lookTarget.x - st.pos.x, 0, st.lookTarget.z - st.pos.z);
+        if (_toTarget.lengthSq() < 1e-4) _toTarget.set(0, 0, -1);
+        _toTarget.normalize();
+        _right.set(-_toTarget.z, 0, _toTarget.x);
+        goalPos
+          .copy(st.pos)
+          .addScaledVector(_toTarget, -0.98)
+          .addScaledVector(_right, 0.78);
+        goalPos.y = 1.72 + breathDriftY;
+        goalTarget.copy(st.lookTarget).addScaledVector(_right, 0.34);
+        goalTarget.y = st.lookTarget.y + breathDriftY * 0.5;
+      }
+      clampInsideRoom(goalPos);
+
+      const step = Math.min(1, delta * 3.8);
+      camera.position.lerp(goalPos, step);
+      if (controlsRef.current) {
+        controlsRef.current.target.lerp(goalTarget, step);
+        controlsRef.current.update();
+      }
+      return;
+    }
+
+    // 4. Free Orbit Mode (smoothly dollies on station click, then releases to user orbit)
     clampInsideRoom(camera.position);
     if (!isAnimatingRef.current) return;
     animTimerRef.current += delta;
-    const step = Math.min(1, delta * 5.5);
+    const step = Math.min(1, delta * 5.0);
 
     camera.position.lerp(goalPos, step);
     if (controlsRef.current) {
@@ -967,26 +1013,62 @@ const stop = (fn) => (e) => {
   fn();
 };
 
-/** Preserves gl.toneMappingExposure inside EffectComposer before ACES tone mapping. */
-class ExposureEffectImpl extends Effect {
+/**
+ * RDR2-Inspired Cinematic Color Grading + Filmic Toe/Shoulder Contrast + Warm/Cool Split-Toning + Subtle 35mm Grain.
+ * Runs in the same single shader pass as exposure before ACES Filmic tone mapping (zero extra render target cost).
+ */
+class CinematicGradeEffectImpl extends Effect {
   constructor(exposure = 1) {
     super(
-      'ExposureEffect',
-      /* glsl */ `uniform float exposure;
+      'CinematicGradeEffect',
+      /* glsl */ `
+      uniform float exposure;
+      uniform float uTime;
       void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-        outputColor = vec4(inputColor.rgb * exposure, inputColor.a);
+        vec3 col = inputColor.rgb * exposure;
+
+        // 1. Filmic toe & shoulder contrast curve (grounds dark shadows, keeps highlights creamy)
+        vec3 lumaVec = vec3(0.2126, 0.7152, 0.0722);
+        float luma = dot(col, lumaVec);
+        float toe = smoothstep(0.0, 0.32, luma);
+        col *= mix(0.86, 1.06, toe);
+
+        // 2. Warm-amber highlights / Cool prussian-twilight shadows split-toning (Red Dead look)
+        vec3 shadowTint = vec3(0.92, 0.96, 1.06);
+        vec3 highlightTint = vec3(1.06, 1.01, 0.93);
+        float splitMask = clamp(luma / (luma + 0.55), 0.0, 1.0);
+        col *= mix(shadowTint, highlightTint, splitMask);
+
+        // 3. Subtle vibrance boost on muted midtones without oversaturating skin
+        float sat = max(col.r, max(col.g, col.b)) - min(col.r, min(col.g, col.b));
+        col = mix(vec3(dot(col, lumaVec)), col, 1.0 + (1.0 - sat) * 0.14);
+
+        // 4. Organic 35mm film grain (stronger in midtones, zero in pure black/white)
+        float noise = fract(sin(dot(uv + fract(uTime * 0.07), vec2(12.9898, 78.233))) * 43758.5453);
+        float grainMask = smoothstep(0.02, 0.25, luma) * (1.0 - smoothstep(0.8, 1.4, luma));
+        col += (noise - 0.5) * 0.022 * grainMask;
+
+        outputColor = vec4(max(col, vec3(0.0)), inputColor.a);
       }`,
-      { uniforms: new Map([['exposure', new THREE.Uniform(exposure)]]) }
+      {
+        uniforms: new Map([
+          ['exposure', new THREE.Uniform(exposure)],
+          ['uTime', new THREE.Uniform(0)],
+        ]),
+      }
     );
   }
 }
 
 const Exposure = forwardRef(function Exposure(_, ref) {
   const exposure = useThree((s) => s.gl.toneMappingExposure);
-  const effect = useMemo(() => new ExposureEffectImpl(exposure), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const effect = useMemo(() => new CinematicGradeEffectImpl(exposure), []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     effect.uniforms.get('exposure').value = exposure;
   }, [effect, exposure]);
+  useFrame(({ clock }) => {
+    effect.uniforms.get('uTime').value = clock.elapsedTime;
+  });
   return <primitive ref={ref} object={effect} dispose={null} />;
 });
 
@@ -2606,15 +2688,15 @@ export default function Room3D({
               smeared the moving nurse into a lingering dark trail on the floor. */}
         </group>
 
-        {/* Post-Processing Pass: Bloom + Exposure/ACES + SMAA + Vignette.
+        {/* Post-Processing Pass: Anamorphic Bloom + RDR2 Cinematic Grade/ACES + SMAA + Cinema Lens Vignette.
             N8AO was removed because its half-res/DPR depth buffer UV mismatch projected a magnified
             dark ghost silhouette overlay across the viewport and stalled integrated GPUs. */}
         <EffectComposer ref={composerRef} multisampling={0}>
-          <Bloom luminanceThreshold={1.1} mipmapBlur intensity={0.85} />
+          <Bloom luminanceThreshold={0.95} mipmapBlur intensity={1.05} />
           <Exposure />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
           <SMAA preset={SMAAPreset.HIGH} />
-          <Vignette eskil={false} offset={0.1} darkness={0.35} />
+          <Vignette eskil={false} offset={0.14} darkness={0.48} />
         </EffectComposer>
 
         </HotspotContext.Provider>
@@ -2630,6 +2712,34 @@ export default function Room3D({
           target={[0, 0.95, -0.05]}
         />
       </Canvas>
+
+      {/* Red Dead-Style 2.39:1 Anamorphic Letterbox Bars (engages smoothly in Cinematic Camera mode) */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: cameraMode === 'cinematic' && !frozen ? '8.5vh' : '0px',
+          background: 'linear-gradient(180deg, rgba(2,4,9,0.96) 75%, rgba(2,4,9,0))',
+          transition: 'height 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
+          pointerEvents: 'none',
+          zIndex: 12,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: cameraMode === 'cinematic' && !frozen ? '8.5vh' : '0px',
+          background: 'linear-gradient(0deg, rgba(2,4,9,0.96) 75%, rgba(2,4,9,0))',
+          transition: 'height 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
+          pointerEvents: 'none',
+          zIndex: 12,
+        }}
+      />
     </div>
   );
 }

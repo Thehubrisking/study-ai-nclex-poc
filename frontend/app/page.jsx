@@ -780,12 +780,23 @@ export default function StudyAiExamPage() {
                 <button
                   style={pillBase}
                   onClick={() =>
-                    setCameraMode((m) => (m === 'third_person' ? 'free_orbit' : 'third_person'))
+                    setCameraMode((m) =>
+                      m === 'third_person'
+                        ? 'cinematic'
+                        : m === 'cinematic'
+                          ? 'free_orbit'
+                          : 'third_person'
+                    )
                   }
-                  title={cameraMode === 'third_person' ? '3rd-Person Camera' : 'Free Orbit Camera'}
+                  title="Cycle Camera: 3rd-Person OTS → Cinematic Cam (Letterbox) → Free Orbit"
                 >
                   <Camera size={12} />
-                  {!isPhone && (cameraMode === 'third_person' ? '3rd-Person' : 'Free Orbit')}
+                  {!isPhone &&
+                    (cameraMode === 'third_person'
+                      ? '3rd-Person'
+                      : cameraMode === 'cinematic'
+                        ? 'Cinematic'
+                        : 'Free Orbit')}
                 </button>
                 <button
                   style={pillBase}
