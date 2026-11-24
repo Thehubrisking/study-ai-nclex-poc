@@ -99,11 +99,24 @@ function domainStatus(score, domain) {
   return domain === 'risk_recognition' ? 'GAP_IDENTIFIED' : 'NEEDS_PRACTICE';
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export async function GET() {
-  return NextResponse.json({
-    status: 'ok',
-    service: 'Study AI NCLEX-RN NGN Evaluation Engine v3.1 (Next.js Serverless)',
-  });
+  return NextResponse.json(
+    {
+      status: 'ok',
+      service: 'Study AI NCLEX-RN NGN Evaluation Engine v3.2 (Next.js Serverless)',
+    },
+    { headers: CORS_HEADERS }
+  );
 }
 
 export async function POST(request) {
@@ -822,14 +835,14 @@ export async function POST(request) {
       adaptive_followup_question: adaptiveFollowupQuestion,
       decision_tree: decisionTree,
       traps_triggered: traps,
-    });
+    }, { headers: CORS_HEADERS });
   } catch (err) {
     return NextResponse.json(
       {
         error: 'Invalid telemetry payload',
         detail: err?.message || String(err),
       },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 }
