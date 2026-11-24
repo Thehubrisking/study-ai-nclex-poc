@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import scenarioData from '../../../config/scenario_hypoxia.json';
 
 /**
- * Study AI — NCLEX-RN NGN Exam Readiness Evaluation Engine (v3.0 — Next.js Serverless Route)
+ * Study AI — NCLEX-RN NGN Exam Readiness Evaluation Engine (v3.1 — Next.js Serverless Route)
  *
- * Exact 1:1 port of `backend-mock/main.py` (`POST /api/evaluate`) so the live Vercel deployment
- * works out-of-the-box with zero external backend configuration, while Oluwaseun can still point
- * `NEXT_PUBLIC_AI_BACKEND_URL` to his standalone Python FastAPI service (`http://localhost:8000/api/evaluate`).
+ * Exact 1:1 port of `backend-mock/main.py` (`POST /api/evaluate`) scoring the post-exploratory
+ * laparotomy dual-complication scenario (Opioid Respiratory Depression + Postoperative Hemorrhage
+ * / Wound Dehiscence-Evisceration Risk) into StudyAI's 4 diagnostic domains (0-100 each).
  */
 
 const DOMAINS = ['knowledge', 'prioritisation', 'risk_recognition', 'clinical_judgment'];
@@ -25,6 +25,7 @@ const TRAP_CODES = new Set([
   'SALINE_FLUSH_TRAP',
   'CONTINUE_BASAL_TRAP',
   'ALLERGY_CROSS_SENSITIVITY_ERROR',
+  'REMOVE_PRIMARY_DRESSING_TRAP',
 ]);
 
 const CRITICAL_CODES = new Set([
@@ -43,9 +44,16 @@ const INTERVENTION_CODES = new Set([
   'NALOXONE_NOT_INDICATED',
   'ALLERGY_CROSS_SENSITIVITY_ERROR',
   'CEFAZOLIN_HELD_ALLERGY',
+  'INITIATE_CRYSTALLOID_BOLUS',
+  'REMOVE_PRIMARY_DRESSING_TRAP',
 ]);
 
-const ABC_CODES = new Set(['SET_BED_FOWLERS', 'ADMINISTER_O2', 'PAUSE_PCA']);
+const ABC_CODES = new Set([
+  'SET_BED_FOWLERS',
+  'ADMINISTER_O2',
+  'PAUSE_PCA',
+  'INITIATE_CRYSTALLOID_BOLUS',
+]);
 
 const OPIOID_CRISIS_CODES = new Set([
   'OPIOID_DEMAND_BOLUS_TRAP',
@@ -92,7 +100,7 @@ function domainStatus(score, domain) {
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    service: 'Study AI NCLEX-RN NGN Evaluation Engine v3.0 (Next.js Serverless)',
+    service: 'Study AI NCLEX-RN NGN Evaluation Engine v3.1 (Next.js Serverless)',
   });
 }
 
@@ -107,7 +115,35 @@ export async function POST(request) {
     const actions = timeline.map((e) => e?.action);
     const ledger = new DomainLedger();
 
-    // ---------- Exit questions (answer keys live in the scenario JSON) ----------
+    // ---------- In-Station Micro-Questions (answer keys live in scenario JSON) ----------
+    const sqResponses = {};
+    for (const r of payload.station_question_responses || []) {
+      if (r?.question_id) sqResponses[r.question_id] = r.selected_option_id ?? null;
+    }
+
+    const stationQuestionResults = [];
+    const sqCorrect = {};
+    for (const [stationId, sq] of Object.entries(exam.station_questions || {})) {
+      const selected = sqResponses[sq.question_id] ?? null;
+      const correct = selected === sq.correct_option_id;
+      sqCorrect[sq.question_id] = correct;
+      const optionText = Object.fromEntries((sq.options || []).map((o) => [o.id, o.text]));
+      stationQuestionResults.push({
+        question_id: sq.question_id,
+        station_id: stationId,
+        station_label: exam?.station_labels?.[stationId] || stationId,
+        ncsbn_category: sq.ncsbn_category,
+        prompt: sq.prompt,
+        selected_option_id: selected,
+        selected_option_text: selected ? optionText[selected] || null : null,
+        correct_option_id: sq.correct_option_id,
+        correct_option_text: optionText[sq.correct_option_id] || null,
+        is_correct: correct,
+        rationale: sq.rationale,
+      });
+    }
+
+    // ---------- Exit Questions (4 post-laparotomy NCLEX questions) ----------
     const responses = {};
     for (const r of payload.exit_question_responses || []) {
       if (r?.question_id) responses[r.question_id] = r.selected_option_id ?? null;
@@ -136,19 +172,21 @@ export async function POST(request) {
 
     const sbarCorrect = Boolean(qCorrect.q1_sbar);
     const abgCorrect = Boolean(qCorrect.q2_abg);
+    const hemorrhageQCorrect = Boolean(qCorrect.q3_hemorrhage_jp);
+    const dehiscenceQCorrect = Boolean(qCorrect.q4_dehiscence_evisceration);
 
     const endReason = payload.end_reason || 'STUDENT_CONCLUDED';
     const endedCodeBlue = endReason === 'CODE_BLUE_FAILURE';
     const firstIntervention = firstEvent(timeline, INTERVENTION_CODES);
     const blindEvents = timeline.filter((e) => e?.action === 'BLIND_INTERVENTION_PENALTY');
 
-    // ---------- 1. KNOWLEDGE ----------
+    // ---------- 1. KNOWLEDGE (Max 100) ----------
     let ev = firstEvent(timeline, 'POWER_ON_MONITOR');
     if (ev) {
       ledger.add(
         'knowledge',
-        20,
-        'Powered on bedside telemetry (SpO2 + ECG) to establish a baseline.',
+        15,
+        'Powered on bedside telemetry (SpO2, HR, BP, RR, EtCO2) to establish an objective baseline.',
         ev.step
       );
     } else {
@@ -161,10 +199,10 @@ export async function POST(request) {
 
     ev = firstEvent(timeline, 'DOCUMENT_VITALS');
     if (ev) {
-      ledger.add('knowledge', 10, 'Documented the abnormal vital signs.', ev.step);
+      ledger.add('knowledge', 5, 'Documented the abnormal post-laparotomy vital signs.', ev.step);
     }
 
-    const tabPoints = { mar: 15, allergies: 15, notes: 10, labs: 5 };
+    const tabPoints = { mar: 10, allergies: 10, notes: 10, labs: 10 };
     for (const [tab, pts] of Object.entries(tabPoints)) {
       const tabEv = timeline.find((e) => e?.action === 'REVIEW_EHR_TAB' && e?.tab === tab);
       if (tabEv) {
@@ -174,28 +212,70 @@ export async function POST(request) {
       }
     }
 
+    ev = firstEvent(timeline, 'VERIFY_GTUBE');
+    if (ev || sc.gtube_verified || room.gtube_verified) {
+      ledger.add(
+        'knowledge',
+        5,
+        'Verified left-upper-quadrant gastrostomy (G-tube) wafer seal and bilious decompression return.',
+        ev ? ev.step : null
+      );
+    } else {
+      ledger.add('knowledge', 0, 'Did not verify gastrostomy (G-tube) site integrity.');
+    }
+
+    for (const sqRes of stationQuestionResults) {
+      if (sqRes.is_correct) {
+        ledger.add(
+          'knowledge',
+          5,
+          `Answered ${sqRes.station_label} clinical cue check (${sqRes.question_id}) correctly.`
+        );
+      } else {
+        ledger.add(
+          'knowledge',
+          0,
+          `Missed or skipped ${sqRes.station_label} clinical cue check (${sqRes.question_id}).`
+        );
+      }
+    }
+
     if (abgCorrect) {
       ledger.add(
         'knowledge',
-        25,
+        10,
         'Correctly interpreted the ABG (uncompensated respiratory acidosis) and selected naloxone.'
       );
     } else {
       ledger.add(
         'knowledge',
         0,
-        'Missed the ABG interpretation / pharmacology follow-up question.'
+        'Missed the ABG interpretation / opioid reversal exit question.'
       );
     }
 
-    // ---------- 2. PRIORITISATION ----------
+    if (dehiscenceQCorrect) {
+      ledger.add(
+        'knowledge',
+        10,
+        "Correctly selected sterile warm saline-moistened dressings and Low Fowler's (knees flexed) for wound evisceration."
+      );
+    } else {
+      ledger.add(
+        'knowledge',
+        0,
+        'Missed the wound dehiscence & evisceration emergency exit question.'
+      );
+    }
+
+    // ---------- 2. PRIORITISATION (Max 100) ----------
     if (!firstIntervention) {
-      ledger.add('prioritisation', 0, 'No airway/breathing or medication interventions were performed.');
+      ledger.add('prioritisation', 0, 'No airway, hemodynamic, or medication interventions were performed.');
     } else if (blindEvents.length === 0) {
       ledger.add(
         'prioritisation',
-        25,
-        'Completed admission safety checks (monitor, ID, MAR, allergies) before intervening.'
+        20,
+        'Completed admission safety checks (monitor, ID, side rails, MAR, allergies) before intervening.'
       );
     } else {
       ledger.add(
@@ -209,14 +289,14 @@ export async function POST(request) {
     if (ev) {
       ledger.add(
         'prioritisation',
-        15,
-        "Elevated the head of bed (Fowler's) to support lung expansion.",
+        12,
+        "Elevated the head of bed (Semi/High Fowler's) to support diaphragmatic excursion.",
         ev.step
       );
       if ((room.bed_angle_deg || 0) >= 30) {
         ledger.add(
           'prioritisation',
-          5,
+          3,
           'Head of bed remained elevated at the end of the bedside phase.'
         );
       }
@@ -226,16 +306,32 @@ export async function POST(request) {
 
     ev = firstEvent(timeline, 'ADMINISTER_O2');
     if (ev) {
-      ledger.add('prioritisation', 15, 'Initiated supplemental oxygen per the PRN order.', ev.step);
+      ledger.add('prioritisation', 12, 'Initiated supplemental oxygen per the PRN order.', ev.step);
       if (room.o2_device) {
         ledger.add(
           'prioritisation',
-          5,
+          3,
           'Supplemental oxygen remained in place at the end of the bedside phase.'
         );
       }
     } else {
       ledger.add('prioritisation', 0, 'Never applied supplemental oxygen.');
+    }
+
+    ev = firstEvent(timeline, 'INITIATE_CRYSTALLOID_BOLUS');
+    if (ev || room.crystalloid_bolus) {
+      ledger.add(
+        'prioritisation',
+        10,
+        'Initiated PRN 0.9% Normal Saline 500 mL IV bolus via secondary port for hemorrhagic hypotension.',
+        ev ? ev.step : null
+      );
+    } else {
+      ledger.add(
+        'prioritisation',
+        0,
+        'Did not initiate the PRN 0.9% Normal Saline IV bolus despite hypotension (BP 92/58) and tachycardia.'
+      );
     }
 
     const firstAbc = firstEvent(timeline, ABC_CODES);
@@ -247,21 +343,21 @@ export async function POST(request) {
         ledger.add(
           'prioritisation',
           10,
-          `First ABC intervention within ${Math.round(delay)}s of recognizing the cues.`,
+          `First ABC/hemodynamic intervention within ${Math.round(delay)}s of recognizing the cues.`,
           firstAbc.step
         );
       } else if (delay <= 180) {
         ledger.add(
           'prioritisation',
           5,
-          `First ABC intervention delayed (${Math.round(delay)}s after cues available).`,
+          `First ABC/hemodynamic intervention delayed (${Math.round(delay)}s after cues available).`,
           firstAbc.step
         );
       } else {
         ledger.add(
           'prioritisation',
           0,
-          `First ABC intervention significantly delayed (${Math.round(delay)}s).`
+          `First ABC/hemodynamic intervention significantly delayed (${Math.round(delay)}s).`
         );
       }
     }
@@ -280,17 +376,27 @@ export async function POST(request) {
     if (sbarCorrect) {
       ledger.add(
         'prioritisation',
-        25,
-        'Selected a complete, structured SBAR escalation with a specific recommendation.'
+        15,
+        'Selected a complete SBAR surgical escalation covering both opioid depression and active JP hemorrhage.'
       );
     } else {
-      ledger.add('prioritisation', 0, 'SBAR escalation was incomplete or unsafe.');
+      ledger.add('prioritisation', 0, 'SBAR surgical escalation was incomplete or unsafe.');
     }
 
-    // ---------- 3. RISK RECOGNITION ----------
+    if (hemorrhageQCorrect) {
+      ledger.add(
+        'prioritisation',
+        15,
+        'Correctly identified the postoperative hemorrhage & JP drain shock triad requiring STAT surgical escalation.'
+      );
+    } else {
+      ledger.add('prioritisation', 0, 'Missed the postoperative hemorrhage & JP drain recognition exit question.');
+    }
+
+    // ---------- 3. RISK RECOGNITION (Max 100) ----------
     ev = firstEvent(timeline, 'VERIFY_PATIENT_ID');
     if (ev) {
-      ledger.add('risk_recognition', 15, 'Verified the wristband with two identifiers.', ev.step);
+      ledger.add('risk_recognition', 10, 'Verified the wristband with two identifiers.', ev.step);
       if (!firstIntervention || (ev.step ?? 0) < (firstIntervention.step ?? 0)) {
         ledger.add('risk_recognition', 5, 'Patient identity confirmed before any intervention.');
       }
@@ -298,9 +404,25 @@ export async function POST(request) {
       ledger.add('risk_recognition', 0, 'Never verified patient identity.');
     }
 
+    ev = firstEvent(timeline, 'RAISE_SIDE_RAILS');
+    if (ev || sc.side_rails_raised || room.side_rails_up) {
+      ledger.add(
+        'risk_recognition',
+        10,
+        'Raised and locked all bed side rails to prevent fall injury in a sedated, hypotensive post-op patient.',
+        ev ? ev.step : null
+      );
+    } else {
+      ledger.add(
+        'risk_recognition',
+        0,
+        'Left the upper bed transfer side rail lowered despite opioid sedation and hypotension (fall hazard).'
+      );
+    }
+
     ev = firstEvent(timeline, 'FLAG_ALLERGY');
     if (ev) {
-      ledger.add('risk_recognition', 15, 'Flagged the penicillin anaphylaxis allergy.', ev.step);
+      ledger.add('risk_recognition', 10, 'Flagged the penicillin anaphylaxis allergy.', ev.step);
     } else {
       ledger.add('risk_recognition', 0, 'Did not flag the penicillin anaphylaxis allergy.');
     }
@@ -309,7 +431,7 @@ export async function POST(request) {
     if (room.pca_paused) {
       ledger.add(
         'risk_recognition',
-        30,
+        25,
         'Morphine PCA was paused (opioid source controlled).',
         pauseEv ? pauseEv.step : null
       );
@@ -328,6 +450,22 @@ export async function POST(request) {
       );
     }
 
+    const jpEv = firstEvent(timeline, 'ASSESS_JP_HEMORRHAGE');
+    if (room.jp_assessed || sc.jp_hemorrhage_assessed || jpEv) {
+      ledger.add(
+        'risk_recognition',
+        15,
+        'Measured 135 mL/hr sanguineous JP drain output, re-compressed the bulb for suction, reinforced strikethrough gauze, and flagged hemorrhage.',
+        jpEv ? jpEv.step : null
+      );
+    } else {
+      ledger.add(
+        'risk_recognition',
+        0,
+        'Never assessed the blood-saturated laparotomy dressing or 135 mL/hr sanguineous JP bulb drain.'
+      );
+    }
+
     const crisis = firstEvent(timeline, OPIOID_CRISIS_CODES);
     if (crisis) {
       const reversal = timeline.find(
@@ -336,7 +474,7 @@ export async function POST(request) {
       if (reversal) {
         ledger.add(
           'risk_recognition',
-          10,
+          5,
           'Recognized opioid toxicity and administered naloxone.',
           reversal.step
         );
@@ -348,12 +486,26 @@ export async function POST(request) {
         );
       }
     } else {
-      ledger.add('risk_recognition', 10, 'Prevented progression to opioid toxicity.');
+      ledger.add('risk_recognition', 5, 'Prevented progression to acute opioid toxicity.');
+    }
+
+    if (!actions.includes('UNRECOGNIZED_HEMORRHAGE_ESCALATION') && !room.hemorrhage_shock) {
+      ledger.add(
+        'risk_recognition',
+        5,
+        'Addressed surgical bleeding / hemodynamics before progression to decompensated hypovolemic shock.'
+      );
+    } else {
+      ledger.add(
+        'risk_recognition',
+        0,
+        'Unaddressed surgical bleeding progressed to worsening hypovolemic shock (HR 136, BP 78/46).'
+      );
     }
 
     const hadCritical = endedCodeBlue || actions.some((a) => CRITICAL_CODES.has(a));
     if (!hadCritical) {
-      ledger.add('risk_recognition', 25, 'No critical safety events.');
+      ledger.add('risk_recognition', 15, 'No critical safety events.');
     }
 
     const penaltyMap = {
@@ -363,9 +515,13 @@ export async function POST(request) {
       ],
       OPIOID_DEMAND_BOLUS_TRAP: [
         -30,
-        'Gave an additional opioid bolus to a patient with respiratory depression.',
+        'Gave an additional opioid bolus to a patient with respiratory depression and hypotension.',
       ],
       SALINE_FLUSH_TRAP: [-20, 'Rapid-flushed the PCA line, bolusing residual morphine.'],
+      REMOVE_PRIMARY_DRESSING_TRAP: [
+        -20,
+        "Peeled off the surgeon's primary laparotomy dressing (<24 hr post-op), disrupting hemostatic clots.",
+      ],
       CONTINUE_BASAL_TRAP: [-15, 'Chose to continue the basal morphine infusion.'],
     };
 
@@ -383,19 +539,19 @@ export async function POST(request) {
       blindTotal -= 5;
     }
 
-    // ---------- 4. CLINICAL JUDGMENT ----------
+    // ---------- 4. CLINICAL JUDGMENT (Max 100) ----------
     const endSpo2 = Number(room?.vitals?.spo2 || 0);
     if (payload.stabilized_at_end) {
       ledger.add(
         'clinical_judgment',
-        35,
-        'Patient met stabilization criteria at the end of the bedside phase (SpO2 ≥ 95%, RR ≥ 14, PCA paused).'
+        30,
+        'Patient met full stabilization criteria (SpO2 ≥ 95%, RR ≥ 14, PCA paused, JP surgical hemorrhage assessed).'
       );
     } else if (endSpo2 >= 90 && !endedCodeBlue) {
       ledger.add(
         'clinical_judgment',
         15,
-        `Partial improvement (SpO2 ${endSpo2}%) but stabilization criteria not met.`
+        `Partial improvement (SpO2 ${endSpo2}%) but full respiratory + surgical stabilization criteria were not met.`
       );
     } else {
       ledger.add('clinical_judgment', 0, `Patient was not stabilized (final SpO2 ${endSpo2}%).`);
@@ -411,16 +567,21 @@ export async function POST(request) {
       ledger.add('clinical_judgment', 0, 'Did not escalate before the time limit expired.');
     }
 
-    ledger.add(
-      'clinical_judgment',
-      sbarCorrect ? 15 : 0,
-      `SBAR escalation question ${sbarCorrect ? 'correct.' : 'incorrect.'}`
-    );
-    ledger.add(
-      'clinical_judgment',
-      abgCorrect ? 15 : 0,
-      `ABG follow-up question ${abgCorrect ? 'correct.' : 'incorrect.'}`
-    );
+    for (const qRes of questionResults) {
+      ledger.add(
+        'clinical_judgment',
+        qRes.is_correct ? 5 : 0,
+        `${qRes.title}: ${qRes.is_correct ? 'correct.' : 'incorrect.'}`
+      );
+    }
+
+    for (const sqRes of stationQuestionResults) {
+      ledger.add(
+        'clinical_judgment',
+        sqRes.is_correct ? 5 : 0,
+        `In-station NCLEX synthesis (${sqRes.station_label}): ${sqRes.is_correct ? 'correct.' : 'incorrect.'}`
+      );
+    }
 
     const trapCount = actions.filter((a) => TRAP_CODES.has(a)).length;
     ledger.add(
@@ -482,24 +643,38 @@ export async function POST(request) {
       };
     }
 
-    // ---------- Missed critical actions ----------
+    // ---------- Missed critical actions (8 bedside safety & priority actions) ----------
+    const totalCriticalActions = 8;
     const missed = [];
     if (!sc.monitor_powered_on) missed.push('POWER_ON_BEDSIDE_MONITOR');
     if (!sc.wristband_verified) missed.push('VERIFY_PATIENT_WRISTBAND_ID');
+    if (!sc.side_rails_raised && !room.side_rails_up) missed.push('RAISE_BED_SIDE_RAILS');
     if (!sc.allergy_flagged) missed.push('FLAG_PENICILLIN_ANAPHYLAXIS_ALLERGY');
     if (!room.pca_paused) missed.push('PAUSE_MORPHINE_PCA_INFUSION');
     if (!room.o2_device) missed.push('APPLY_SUPPLEMENTAL_OXYGEN');
     if ((room.bed_angle_deg || 0) < 30) missed.push('ELEVATE_HEAD_OF_BED_FOWLERS');
+    if (!room.jp_assessed && !sc.jp_hemorrhage_assessed) {
+      missed.push('ASSESS_JP_SURGICAL_DRAIN_HEMORRHAGE');
+    }
 
     // ---------- NCJMM layers demonstrated ----------
     const layers = [];
     if (sc.monitor_powered_on) layers.push('RECOGNIZE_CUES');
-    if (sc.mar_reviewed || sc.notes_reviewed) layers.push('ANALYZE_CUES');
-    if (abgCorrect) layers.push('PRIORITIZE_HYPOTHESES');
-    if (pauseEv || firstEvent(timeline, 'ADMINISTER_NALOXONE')) {
+    if (sc.mar_reviewed || sc.notes_reviewed || sc.labs_reviewed) layers.push('ANALYZE_CUES');
+    if (abgCorrect || hemorrhageQCorrect) layers.push('PRIORITIZE_HYPOTHESES');
+    if (
+      pauseEv ||
+      firstEvent(timeline, 'ADMINISTER_NALOXONE') ||
+      firstEvent(timeline, 'ASSESS_JP_HEMORRHAGE')
+    ) {
       layers.push('GENERATE_SOLUTIONS');
     }
-    if (firstEvent(timeline, new Set(['SET_BED_FOWLERS', 'ADMINISTER_O2']))) {
+    if (
+      firstEvent(
+        timeline,
+        new Set(['SET_BED_FOWLERS', 'ADMINISTER_O2', 'INITIATE_CRYSTALLOID_BOLUS'])
+      )
+    ) {
       layers.push('TAKE_ACTION');
     }
     const reassessed =
@@ -512,23 +687,33 @@ export async function POST(request) {
     }
 
     const topics = [];
-    if (scores.risk_recognition < 80) {
+    if (!room.jp_assessed || !hemorrhageQCorrect || actions.includes('REMOVE_PRIMARY_DRESSING_TRAP')) {
       topics.push(
-        'Opioid-induced respiratory depression: PCA safety, sedation scales & naloxone'
+        'Postoperative hemorrhage: Jackson-Pratt (JP) bulb suction, dressing reinforcement & hypovolemic shock cues'
+      );
+    }
+    if (!dehiscenceQCorrect || sqCorrect.sq_surgical_wound === false) {
+      topics.push(
+        "Abdominal wound dehiscence & evisceration emergency care (warm sterile saline dressings & Low Fowler's)"
+      );
+    }
+    if (scores.risk_recognition < 80 || !room.pca_paused) {
+      topics.push(
+        'Opioid-induced respiratory depression: PCA safety, fall precautions (side rails) & naloxone'
       );
     }
     if (actions.includes('ALLERGY_CROSS_SENSITIVITY_ERROR') || !sc.allergy_flagged) {
       topics.push('Penicillin–cephalosporin cross-sensitivity & allergy verification');
     }
     if (scores.prioritisation < 80) {
-      topics.push('Maslow/ABC prioritisation & SBAR escalation');
+      topics.push('Maslow/ABC prioritisation, isotonic fluid resuscitation & SBAR surgical escalation');
     }
     if (!abgCorrect) {
-      topics.push('ABG interpretation (respiratory acidosis)');
+      topics.push('ABG interpretation (uncompensated respiratory acidosis)');
     }
     if (topics.length === 0) {
       topics.push(
-        'Maintain readiness: practice a new NGN case type (e.g., transfusion reaction or sepsis)'
+        'Maintain readiness: practice a new NGN case type (e.g., acute blood transfusion reaction or septic shock)'
       );
     }
 
@@ -551,45 +736,64 @@ export async function POST(request) {
       ['TRAP', 'CRITICAL_ERROR', 'PENALTY'].includes(d.classification)
     );
 
-    // Adaptive follow-up question tailored to whether the candidate paused the PCA / avoided traps
-    const adaptiveFollowupQuestion = !room.pca_paused
-      ? {
-          question_id: 'adaptive_opioid_antagonist',
-          ncsbn_category: 'Pharmacological and Parenteral Therapies',
-          prompt:
-            'Because the Morphine PCA continued infusing, the patient progresses to severe respiratory depression (RR 6/min, SpO2 78%, EtCO2 64 mmHg). Which PRN medication and nursing action is immediately indicated?',
-          options: [
-            'Administer Naloxone (Narcan) 0.4 mg IV push slowly and stop the Morphine PCA infusion.',
-            'Administer Flumazenil 0.2 mg IV push over 15 seconds.',
-            'Flush the peripheral IV line with 10 mL of 0.9% Normal Saline.',
-            'Decrease the Morphine PCA basal rate from 2 mg/hr to 1 mg/hr.',
-          ],
-          correct_option_index: 0,
-          rationale:
-            'Naloxone is a competitive mu-opioid receptor antagonist that reverses opioid-induced respiratory depression; stopping the PCA prevents ongoing opioid delivery.',
-        }
-      : {
-          question_id: 'adaptive_renarcotization_monitoring',
-          ncsbn_category: 'Reduction of Risk Potential / Physiological Adaptation',
-          prompt:
-            'Thirty minutes after stabilizing the patient and pausing the Morphine PCA, why must the nurse continue close respiratory and sedation monitoring (Pasero Opioid-Induced Sedation Scale)?',
-          options: [
-            'Naloxone has a shorter biological half-life (30–90 min) than morphine, creating a risk of renarcotization and recurrent respiratory depression.',
-            'Supplemental oxygen via Non-Rebreather permanently eliminates hypercapnia.',
-            'Fowler’s position increases venous return to the right atrium and causes pulmonary edema.',
-            'Cefazolin cross-reacts with opioid receptors after 30 minutes.',
-          ],
-          correct_option_index: 0,
-          rationale:
-            'Because naloxone is metabolized faster than most opioids, sedation and respiratory depression can recur ("renarcotization") once the antagonist wears off.',
-        };
+    let adaptiveFollowupQuestion;
+    if (!room.jp_assessed || actions.includes('REMOVE_PRIMARY_DRESSING_TRAP')) {
+      adaptiveFollowupQuestion = {
+        question_id: 'adaptive_jp_drain_suction',
+        ncsbn_category: 'Reduction of Risk Potential',
+        prompt:
+          'When emptying and resetting a Jackson-Pratt (JP) closed-wound suction drain that contains 135 mL of bright-red sanguineous fluid, how must the nurse re-establish negative-pressure suction and manage the saturated primary laparotomy gauze (<24 hr post-op)?',
+        options: [
+          'Open the pouring spout, measure drainage in a calibrated cup, fully compress the bulb flat with your hand BEFORE recapping the plug, and reinforce OVER the primary surgical gauze with sterile abdominal pads while notifying the surgeon STAT.',
+          'Recap the pouring spout while the bulb is fully inflated so positive air pressure tamponades the surgical bed, and peel off the bloody primary gauze.',
+          'Connect the Jackson-Pratt tubing directly to high continuous wall suction (-200 mmHg).',
+          'Leave the JP drain plug uncapped to gravity drainage and irrigate the surgical drain lumen with tap water.',
+        ],
+        correct_option_index: 0,
+        rationale:
+          'Compressing the JP bulb flat before sealing the plug creates gentle negative suction; within the first 24 hours post-laparotomy, blood-soaked primary dressings are reinforced (never peeled off) to avoid dislodging clots while escalating to surgery.',
+      };
+    } else if (!room.pca_paused) {
+      adaptiveFollowupQuestion = {
+        question_id: 'adaptive_opioid_antagonist',
+        ncsbn_category: 'Pharmacological and Parenteral Therapies',
+        prompt:
+          'Because the Morphine PCA continued infusing, the patient progresses to severe respiratory depression (RR 6/min, SpO2 78%, EtCO2 64 mmHg). Which PRN medication and nursing action is immediately indicated?',
+        options: [
+          'Administer Naloxone (Narcan) 0.4 mg IV push slowly and stop the Morphine PCA infusion.',
+          'Administer Flumazenil 0.2 mg IV push over 15 seconds.',
+          'Flush the peripheral IV line with 10 mL of 0.9% Normal Saline.',
+          'Decrease the Morphine PCA basal rate from 2 mg/hr to 1 mg/hr.',
+        ],
+        correct_option_index: 0,
+        rationale:
+          'Naloxone is a competitive mu-opioid receptor antagonist that reverses opioid-induced respiratory depression; stopping the PCA prevents ongoing opioid delivery.',
+      };
+    } else {
+      adaptiveFollowupQuestion = {
+        question_id: 'adaptive_renarcotization_monitoring',
+        ncsbn_category: 'Reduction of Risk Potential / Physiological Adaptation',
+        prompt:
+          'Thirty minutes after stabilizing the patient and pausing the Morphine PCA, why must the nurse continue close respiratory, sedation (Pasero scale), and JP drain output monitoring?',
+        options: [
+          'Naloxone has a shorter half-life (30–90 min) than morphine (risk of renarcotization), and crystalloid resuscitation raising blood pressure can unmask ongoing surgical-bed bleeding.',
+          'Supplemental oxygen via Non-Rebreather permanently eliminates hypercapnia.',
+          "Semi-Fowler's position causes rapid gastrostomy tube dislodgement.",
+          'Cefazolin cross-reacts with opioid receptors after 30 minutes.',
+        ],
+        correct_option_index: 0,
+        rationale:
+          'Naloxone wears off faster than morphine ("renarcotization"), and restoring arterial pressure with IV crystalloids can increase bleeding from an unligated mesenteric vessel — requiring serial vital sign and JP output surveillance.',
+      };
+    }
 
     return NextResponse.json({
       session_id: payload.session_id,
+      student_id: payload.student_id || 'anonymous',
       scenario_id: payload.scenario_id,
       exam_mode: payload.exam_mode || 'NGN_EXAM_READINESS',
       evaluated_at: new Date().toISOString(),
-      engine: 'Study AI NGN Evaluation Engine v3.0 (Next.js Serverless /api/evaluate)',
+      engine: 'Study AI NGN Evaluation Engine v3.1 (Next.js Serverless /api/evaluate)',
       overall_competency_score: overall,
       readiness_band: band,
       end_reason: endReason,
@@ -598,6 +802,7 @@ export async function POST(request) {
       time_limit_sec: payload.time_limit_sec ?? 300,
       stabilized_at_end: Boolean(payload.stabilized_at_end),
       critical_safety_events: criticalEvents,
+      total_critical_actions: totalCriticalActions,
       diagnostic_breakdown: Object.fromEntries(
         DOMAINS.map((d) => [
           d,
@@ -612,6 +817,7 @@ export async function POST(request) {
       ncjmm_layers_demonstrated: layers,
       missed_critical_actions: missed,
       recommended_practice_topics: topics,
+      station_questions: stationQuestionResults,
       exit_questions: questionResults,
       adaptive_followup_question: adaptiveFollowupQuestion,
       decision_tree: decisionTree,

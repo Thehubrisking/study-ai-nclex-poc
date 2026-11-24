@@ -76,6 +76,11 @@ const STATION_WAYPOINTS = {
     lookAt: [0.0, 1.15, -0.25],
     otsCam: [1.65, 1.82, 2.55],
   },
+  surgical_site: {
+    nursePos: [-0.92, 0, -0.28],
+    lookAt: [-0.04, 1.38, -0.16],
+    otsCam: [-0.92, 2.02, 1.05],
+  },
   wall_oxygen: {
     nursePos: [-0.94, 0, -1.25],
     lookAt: [-0.88, 1.38, -1.84],
@@ -117,6 +122,10 @@ const CAMERA_PRESETS = {
   hospital_bed: {
     pos: [2.55, 1.92, 2.25],
     target: [0.0, 1.15, -0.25],
+  },
+  surgical_site: {
+    pos: [-0.88, 2.02, 1.05],
+    target: [-0.04, 1.36, -0.16],
   },
   wall_oxygen: {
     pos: [-0.1, 1.9, 0.1],
@@ -326,7 +335,8 @@ const STATION_GESTURE = {
   bedside_monitor: 'ReachHigh', // monitor power / controls at ~1.4 m
   wall_oxygen: 'ReachHigh', // headwall flowmeter
   iv_pump: 'ReachHigh', // pole-mounted PCA pump
-  hospital_bed: 'ReachMid', // bed frame control panel
+  hospital_bed: 'ReachMid', // bed frame & side rail controls
+  surgical_site: 'ReachMid', // inspect midline laparotomy dressing, JP bulb & G-tube
   wristband: 'ReachMid', // scan the patient's wristband
   ehr_tablet: 'ReachMid', // workstation keyboard / screen
 };
@@ -1373,6 +1383,7 @@ function makeQuiltedBlanketTexture() {
 
 function HospitalBedGLB({
   bedAngle,
+  sideRailsUp = false,
   bedObj,
   isCompleted,
   isSelected,
@@ -1381,6 +1392,7 @@ function HospitalBedGLB({
   const { scene: bedScene } = useGLTF('/models/hospital_bed_carlos.glb');
   const { scene: pillowScene } = useGLTF('/models/pillow.glb');
   const backrestRef = useRef();
+  const transferRailRef = useRef();
   const quiltTex = useMemo(() => makeQuiltedBlanketTexture(), []);
 
   const fittedBed = useMemo(
@@ -1433,6 +1445,14 @@ function HospitalBedGLB({
         backrestRef.current.rotation.x,
         targetRad,
         Math.min(1, delta * 18)
+      );
+    }
+    if (transferRailRef.current) {
+      const targetY = sideRailsUp ? 1.24 : 0.86;
+      transferRailRef.current.position.y = THREE.MathUtils.lerp(
+        transferRailRef.current.position.y,
+        targetY,
+        Math.min(1, delta * 10)
       );
     }
   });
@@ -1525,6 +1545,22 @@ function HospitalBedGLB({
         </group>
       </group>
 
+      {/* Articulating Upper Left Transfer Safety Rail (starts lowered on PACU arrival; locks up when raised) */}
+      <group ref={transferRailRef} position={[0.485, sideRailsUp ? 1.24 : 0.86, -0.36]}>
+        <RoundedBox args={[0.028, 0.24, 0.82]} radius={0.012} castShadow>
+          <meshStandardMaterial color="#e2e8f0" roughness={0.32} metalness={0.35} />
+        </RoundedBox>
+        <mesh position={[0.016, 0.08, 0.34]}>
+          <sphereGeometry args={[0.014, 12, 12]} />
+          <meshStandardMaterial
+            color={sideRailsUp ? '#10b981' : '#f59e0b'}
+            emissive={sideRailsUp ? '#10b981' : '#f59e0b'}
+            emissiveIntensity={1.4}
+            toneMapped={false}
+          />
+        </mesh>
+      </group>
+
       {bedObj && (
         <InteractiveHotspot
           position={[0.0, 0.75, 1.38]}
@@ -1553,6 +1589,8 @@ function PatientAndWristband({
   bedAngle,
   o2Device,
   verifiedId,
+  hemorrhageShock = false,
+  crystalloidBolus = false,
   vitals,
   monitorConnected = true,
   verbalCues,
@@ -1585,6 +1623,13 @@ function PatientAndWristband({
         text: cues.bradypnea,
         severity: 'critical',
         badge: 'RR <= 10 • UNAROUSABLE',
+      };
+    }
+    if (vitals.patient_status === 'HEMORRHAGIC_SHOCK') {
+      return {
+        text: cues.hemorrhage_shock || cues.hypoxic,
+        severity: 'critical',
+        badge: `BP ${vitals.bp} • HEMORRHAGE`,
       };
     }
     if (vitals.spo2 < 90) {
@@ -1672,11 +1717,18 @@ function PatientAndWristband({
 
   useFrame((state, delta) => {
     const elapsed = state.clock.elapsedTime;
-    // 1. Sub-100ms cyanosis skin tint driven by live.spo2
+    // 1. Sub-100ms cyanosis + postoperative hemorrhage pallor & diaphoretic skin sheen
     const t = THREE.MathUtils.clamp((94 - live.spo2) / 14, 0, 1);
-    _tint.setRGB(1 - 0.5 * t, 1 - 0.38 * t, 1 - 0.08 * t);
+    const pallor = crystalloidBolus ? 0.06 : hemorrhageShock ? 0.34 : 0.18;
+    _tint.setRGB(
+      1 - 0.42 * t + pallor * 0.08,
+      1 - 0.32 * t + pallor * 0.04,
+      1 - 0.06 * t + pallor * 0.06
+    );
+    const targetRoughness = crystalloidBolus ? 0.62 : hemorrhageShock ? 0.28 : 0.38;
     for (const m of materials.current) {
       m.color.copy(_tint);
+      m.roughness = targetRoughness; // Diaphoresis: cool clammy sweat sheen when hypovolemic
       if (m.emissive) {
         m.emissive.copy(_cyanEmissive).multiplyScalar(live.cyanosis * 0.22);
       }
@@ -1925,6 +1977,179 @@ function PatientAndWristband({
         <InteractiveHotspot
           position={[0.28, 0.92, 0.28]}
           objConfig={wristbandObj}
+          isCompleted={isCompleted}
+          isSelected={isSelected}
+          onSelect={onSelectObject}
+        />
+      )}
+    </group>
+  );
+}
+
+/* ---------- 2B. Post-Exploratory Laparotomy Abdominal Dressing, JP Bulb Drain & G-Tube ---------- */
+function SurgicalDrainsAndDressing3D({
+  bedAngle = 0,
+  jpAssessed = false,
+  primaryDressingRemoved = false,
+  surgicalObj,
+  isCompleted,
+  isSelected,
+  onSelectObject,
+}) {
+  const groupRef = useRef();
+  const elevY = Math.sin(THREE.MathUtils.degToRad(Math.max(0, bedAngle))) * 0.065;
+  const elevRotX = -THREE.MathUtils.degToRad(Math.max(0, bedAngle) * 0.28);
+  const surfY = 1.408 + elevY;
+
+  return (
+    <group onClick={stop(() => onSelectObject('surgical_site'))}>
+      {/* Abdominal surface group sitting flush atop the parted hospital gown over the abdomen */}
+      <group
+        ref={groupRef}
+        position={[0, surfY, -0.16]}
+        rotation={[elevRotX, 0, 0]}
+      >
+        {/* Parted gown surgical inspection window exposing abdominal skin */}
+        <RoundedBox args={[0.31, 0.008, 0.26]} position={[0, -0.002, 0.01]} radius={0.004}>
+          <meshStandardMaterial color="#8d6249" roughness={0.58} />
+        </RoundedBox>
+        {/* Folded white gown hems framing top & bottom of the exposed abdominal window */}
+        <RoundedBox args={[0.33, 0.012, 0.022]} position={[0, 0.002, -0.125]} radius={0.005}>
+          <meshStandardMaterial color="#e8eef5" roughness={0.85} />
+        </RoundedBox>
+        <RoundedBox args={[0.33, 0.012, 0.022]} position={[0, 0.002, 0.145]} radius={0.005}>
+          <meshStandardMaterial color="#e8eef5" roughness={0.85} />
+        </RoundedBox>
+
+        {/* 1. Midline Laparotomy Sterile Gauze Dressing + Sanguineous Strikethrough */}
+        {!primaryDressingRemoved ? (
+          <group position={[0, 0.009, 0.015]}>
+            <RoundedBox args={[0.115, 0.014, 0.195]} radius={0.004} castShadow>
+              <meshStandardMaterial color="#f8fafc" roughness={0.88} />
+            </RoundedBox>
+            {/* Bright-red sanguineous strikethrough spot (matches clinical reference photo) */}
+            <mesh position={[0.004, 0.008, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
+              <circleGeometry args={[0.038, 20]} />
+              <meshStandardMaterial
+                color="#991b1b"
+                roughness={0.42}
+                polygonOffset
+                polygonOffsetFactor={-1}
+              />
+            </mesh>
+            <mesh position={[-0.012, 0.0085, -0.024]} rotation={[-Math.PI / 2, 0, 0]}>
+              <circleGeometry args={[0.024, 16]} />
+              <meshStandardMaterial
+                color="#dc2626"
+                roughness={0.48}
+                polygonOffset
+                polygonOffsetFactor={-2}
+              />
+            </mesh>
+            {/* Secondary sterile reinforcement pad placed OVER primary dressing once nurse assesses hemorrhage */}
+            {jpAssessed && (
+              <RoundedBox
+                args={[0.135, 0.012, 0.215]}
+                position={[0, 0.013, 0]}
+                radius={0.004}
+                castShadow
+              >
+                <meshStandardMaterial color="#ffffff" roughness={0.85} />
+              </RoundedBox>
+            )}
+          </group>
+        ) : (
+          /* Exposed erythematous suture line if candidate triggered the "peel off primary dressing" trap */
+          <mesh position={[0, 0.006, 0.015]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[0.026, 0.17]} />
+            <meshStandardMaterial color="#7f1d1d" roughness={0.35} />
+          </mesh>
+        )}
+
+        {/* 2. LUQ Gastrostomy (G-Tube) Hydrocolloid Exit Wafer + Clamped Decompression Catheter */}
+        <group position={[0.105, 0.006, -0.045]} rotation={[0, 0, -0.1]}>
+          <RoundedBox args={[0.064, 0.008, 0.064]} radius={0.003}>
+            <meshStandardMaterial color="#f3cfa2" roughness={0.65} />
+          </RoundedBox>
+          <mesh position={[0, 0.009, 0]}>
+            <cylinderGeometry args={[0.012, 0.014, 0.012, 16]} />
+            <meshStandardMaterial color="#e2e8f0" roughness={0.4} />
+          </mesh>
+          {/* Blue G-tube pinch clamp */}
+          <mesh position={[0.036, 0.015, 0.028]} rotation={[0.3, 0.4, 0]}>
+            <boxGeometry args={[0.02, 0.01, 0.013]} />
+            <meshStandardMaterial color="#2563eb" roughness={0.35} />
+          </mesh>
+        </group>
+
+        {/* 3. RLQ Drain Exit Wafer */}
+        <group position={[-0.102, 0.006, 0.048]} rotation={[0, 0, 0.12]}>
+          <RoundedBox args={[0.05, 0.007, 0.05]} radius={0.003}>
+            <meshStandardMaterial color="#f3cfa2" roughness={0.65} />
+          </RoundedBox>
+        </group>
+      </group>
+
+      {/* Curved Gastrostomy Pigtail Tube (LUQ) */}
+      <SplineTube
+        color="#fef08a"
+        opacity={0.82}
+        radius={0.005}
+        points={[
+          [0.105, surfY + 0.012, -0.205],
+          [0.18, surfY - 0.01, -0.16],
+          [0.25, surfY - 0.09, -0.10],
+          [0.30, 1.19, -0.03],
+        ]}
+      />
+
+      {/* Jackson-Pratt (JP) Silicone Drain Tubing + Ovoid Grenade Bulb at Right Bedside */}
+      <SplineTube
+        color="#dc2626"
+        opacity={0.88}
+        radius={0.0048}
+        points={[
+          [-0.102, surfY + 0.01, -0.112],
+          [-0.19, surfY - 0.02, -0.09],
+          [-0.27, 1.29, -0.06],
+          [-0.32, 1.22, -0.035],
+        ]}
+      />
+
+      {/* JP Ovoid Bulb Reservoir — expanded & blood-filled initially; compressed flat once suction is restored */}
+      <group
+        position={[-0.325, 1.17, -0.03]}
+        rotation={[0.15, 0, 0.28]}
+        scale={jpAssessed ? [1, 1, 0.46] : [1, 1, 1]}
+      >
+        {/* Translucent silicone bulb shell */}
+        <mesh scale={[0.042, 0.062, 0.042]} castShadow>
+          <sphereGeometry args={[1, 20, 16]} />
+          <meshPhysicalMaterial {...CLEAR_POLYMER} color="#fecaca" opacity={0.52} />
+        </mesh>
+        {/* Sanguineous blood collection in lower half of bulb (135 mL before emptying, minimal residual after) */}
+        <mesh
+          position={[0, jpAssessed ? -0.028 : -0.009, 0]}
+          scale={jpAssessed ? [0.028, 0.018, 0.028] : [0.038, 0.044, 0.038]}
+        >
+          <sphereGeometry args={[1, 18, 14]} />
+          <meshStandardMaterial color="#991b1b" roughness={0.28} />
+        </mesh>
+        {/* White top collar & evacuation stopper port */}
+        <mesh position={[0, 0.062, 0]}>
+          <cylinderGeometry args={[0.014, 0.018, 0.015, 16]} />
+          <meshStandardMaterial color="#f8fafc" roughness={0.35} />
+        </mesh>
+        <mesh position={[0.013, 0.071, 0]}>
+          <cylinderGeometry args={[0.0055, 0.0055, 0.011, 12]} />
+          <meshStandardMaterial color="#cbd5e1" roughness={0.4} />
+        </mesh>
+      </group>
+
+      {surgicalObj && (
+        <InteractiveHotspot
+          position={[-0.22, 1.56, -0.08]}
+          objConfig={surgicalObj}
           isCompleted={isCompleted}
           isSelected={isSelected}
           onSelect={onSelectObject}
@@ -2591,9 +2816,14 @@ export default function Room3D({
   vitals,
   monitorConnected = true,
   bedAngle,
+  sideRailsUp = false,
   o2Device,
   pcaPaused,
   verifiedId,
+  jpAssessed = false,
+  primaryDressingRemoved = false,
+  hemorrhageShock = false,
+  crystalloidBolus = false,
   completedObjects,
   selectedObjectId,
   onSelectObject,
@@ -2767,6 +2997,7 @@ export default function Room3D({
             <TrendelenburgTilt bedAngle={bedAngle}>
               <HospitalBedGLB
                 bedAngle={Math.max(0, bedAngle)}
+                sideRailsUp={sideRailsUp}
                 bedObj={getObj('hospital_bed')}
                 {...sel('hospital_bed')}
               />
@@ -2775,11 +3006,21 @@ export default function Room3D({
                 bedAngle={Math.max(0, bedAngle)}
                 o2Device={o2Device}
                 verifiedId={verifiedId}
+                hemorrhageShock={hemorrhageShock}
+                crystalloidBolus={crystalloidBolus}
                 vitals={vitals}
                 monitorConnected={monitorConnected}
                 verbalCues={scenarioData.patient_verbal_cues}
                 wristbandObj={getObj('wristband')}
                 {...sel('wristband')}
+              />
+
+              <SurgicalDrainsAndDressing3D
+                bedAngle={Math.max(0, bedAngle)}
+                jpAssessed={jpAssessed}
+                primaryDressingRemoved={primaryDressingRemoved}
+                surgicalObj={getObj('surgical_site')}
+                {...sel('surgical_site')}
               />
             </TrendelenburgTilt>
 

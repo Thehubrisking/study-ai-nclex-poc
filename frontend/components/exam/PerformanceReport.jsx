@@ -12,6 +12,7 @@ import {
   Loader2,
   Copy,
   Sparkles,
+  ArrowUpRight,
 } from 'lucide-react';
 import { StudyAiAppShell } from './BriefingModal';
 import { formatClock } from '../../lib/examEngine';
@@ -189,6 +190,7 @@ export default function PerformanceReport({
   payload,
   result,
   error,
+  returnUrl,
   onRetry,
   onNewAttempt,
 }) {
@@ -287,7 +289,7 @@ export default function PerformanceReport({
 
   const clientNeeds = buildClientNeedsBars();
   const missData = buildMissBreakdown();
-  const totalCritical = 5;
+  const totalCritical = result?.total_critical_actions ?? 8;
   const missedCount = result?.missed_critical_actions?.length ?? 0;
   const caughtCount = Math.max(0, totalCritical - Math.min(totalCritical, missedCount));
 
@@ -821,6 +823,106 @@ export default function PerformanceReport({
                   Nurse-educator rationales & follow-up check
                 </h2>
 
+                {Array.isArray(result.station_questions) && result.station_questions.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        color: '#1e4a38',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      In-Station Bedside NCLEX Cue Checks ({result.station_questions.length})
+                    </div>
+                    <div
+                      className="exam-grid-2"
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                        gap: '12px',
+                      }}
+                    >
+                      {result.station_questions.map((sq) => (
+                        <div
+                          key={sq.question_id}
+                          style={{
+                            padding: '15px 17px',
+                            borderRadius: '18px',
+                            background: '#f8faf5',
+                            border: '1px solid #e7eae3',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              color: '#101713',
+                            }}
+                          >
+                            {sq.is_correct ? (
+                              <CheckCircle2 size={15} color="#2f7a4d" />
+                            ) : (
+                              <XCircle size={15} color="#c8372e" />
+                            )}
+                            {sq.station_label} · {sq.ncsbn_category}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '12px',
+                              color: '#475045',
+                              marginTop: '7px',
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            <strong>Your answer ({sq.selected_option_id || '—'}):</strong>{' '}
+                            {sq.selected_option_text || 'Not answered at station'}
+                          </div>
+                          {!sq.is_correct && (
+                            <div
+                              style={{
+                                fontSize: '12px',
+                                color: '#2f7a4d',
+                                marginTop: '4px',
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              <strong>Approved key ({sq.correct_option_id}):</strong>{' '}
+                              {sq.correct_option_text}
+                            </div>
+                          )}
+                          <div
+                            style={{
+                              fontSize: '11.5px',
+                              color: '#6b746a',
+                              marginTop: '7px',
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            {sq.rationale}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    color: '#1e4a38',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  Post-Simulation Escalation & Emergency Questions ({result.exit_questions.length})
+                </div>
+
                 <div
                   className="exam-grid-2"
                   style={{
@@ -1154,6 +1256,26 @@ export default function PerformanceReport({
                 marginTop: '20px',
               }}
             >
+              {returnUrl && (
+                <a
+                  href={returnUrl}
+                  style={{
+                    height: '52px',
+                    padding: '0 28px',
+                    borderRadius: '26px',
+                    background: '#ffffff',
+                    color: '#14301f',
+                    textDecoration: 'none',
+                    fontSize: '15px',
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  Return to StudyAI dashboard <ArrowUpRight size={16} />
+                </a>
+              )}
               <button
                 type="button"
                 onClick={onNewAttempt}

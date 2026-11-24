@@ -1,12 +1,14 @@
 """
-Study AI — NCLEX-RN NGN Exam Readiness Evaluation Engine (v3.0)
+Study AI — NCLEX-RN NGN Exam Readiness Evaluation Engine (v3.1)
 
 Scores a strict, timed bedside attempt into Study AI's 4 mandatory diagnostic domains
-(knowledge, prioritisation, risk_recognition, clinical_judgment).
+(knowledge, prioritisation, risk_recognition, clinical_judgment) for the post-exploratory
+laparotomy dual-complication scenario (Opioid Respiratory Depression + Postoperative Hemorrhage
+/ Wound Dehiscence & Evisceration Risk).
 
-Clinical content (exit-question answer keys, rationales, event labels) is read from the shared
-scenario file `frontend/config/scenario_hypoxia.json` on every request, so the Clinical Lead can
-edit it without touching this code or restarting the server.
+Clinical content (station-question & exit-question answer keys, rationales, event labels) is read
+from the shared scenario file `frontend/config/scenario_hypoxia.json` on every request, and exposed
+at `GET /api/scenario` for main-platform database ingestion.
 """
 import json
 from datetime import datetime, timezone
@@ -19,7 +21,7 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(
     title="Study AI NCLEX-RN Diagnostic Telemetry & Evaluation Engine",
-    version="3.0",
+    version="3.1",
 )
 
 app.add_middleware(
@@ -48,6 +50,7 @@ TRAP_CODES = {
     "SALINE_FLUSH_TRAP",
     "CONTINUE_BASAL_TRAP",
     "ALLERGY_CROSS_SENSITIVITY_ERROR",
+    "REMOVE_PRIMARY_DRESSING_TRAP",
 }
 CRITICAL_CODES = {"ALLERGY_CROSS_SENSITIVITY_ERROR", "OPIOID_DEMAND_BOLUS_TRAP"}
 INTERVENTION_CODES = {
@@ -61,8 +64,15 @@ INTERVENTION_CODES = {
     "NALOXONE_NOT_INDICATED",
     "ALLERGY_CROSS_SENSITIVITY_ERROR",
     "CEFAZOLIN_HELD_ALLERGY",
+    "INITIATE_CRYSTALLOID_BOLUS",
+    "REMOVE_PRIMARY_DRESSING_TRAP",
 }
-ABC_CODES = {"SET_BED_FOWLERS", "ADMINISTER_O2", "PAUSE_PCA"}
+ABC_CODES = {
+    "SET_BED_FOWLERS",
+    "ADMINISTER_O2",
+    "PAUSE_PCA",
+    "INITIATE_CRYSTALLOID_BOLUS",
+}
 OPIOID_CRISIS_CODES = {
     "OPIOID_DEMAND_BOLUS_TRAP",
     "SALINE_FLUSH_TRAP",
@@ -71,7 +81,7 @@ OPIOID_CRISIS_CODES = {
 }
 
 
-class ExitQuestionResponse(BaseModel):
+class QuestionResponse(BaseModel):
     question_id: str
     selected_option_id: Optional[str] = None
 
@@ -89,7 +99,8 @@ class TelemetryPayload(BaseModel):
     safety_checks: Dict[str, Any] = Field(default_factory=dict)
     action_timeline: List[Dict[str, Any]] = Field(default_factory=list)
     traps_triggered: List[Dict[str, Any]] = Field(default_factory=list)
-    exit_question_responses: List[ExitQuestionResponse] = Field(default_factory=list)
+    station_question_responses: List[QuestionResponse] = Field(default_factory=list)
+    exit_question_responses: List[QuestionResponse] = Field(default_factory=list)
     final_room_state: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -134,23 +145,116 @@ def domain_status(score: int, domain: str) -> str:
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "service": "Study AI NCLEX-RN NGN Evaluation Engine v3.0"}
+    return {"status": "ok", "service": "Study AI NCLEX-RN NGN Evaluation Engine v3.1"}
+
+
+@app.get("/api/scenario")
+def get_authoritative_scenario():
+    scenario = load_scenario()
+    exam = scenario.get("exam_config", {})
+    station_labels = exam.get("station_labels", {})
+    station_questions = [
+        {
+            "station_id": sid,
+            "station_label": station_labels.get(sid, sid),
+            "question_id": sq.get("question_id"),
+            "domain": sq.get("domain"),
+            "ncsbn_category": sq.get("ncsbn_category"),
+            "prompt": sq.get("prompt"),
+            "options": sq.get("options"),
+            "correct_option_id": sq.get("correct_option_id"),
+            "rationale": sq.get("rationale"),
+        }
+        for sid, sq in (exam.get("station_questions") or {}).items()
+    ]
+    exit_questions = [
+        {
+            "question_id": q.get("question_id"),
+            "domain": q.get("domain"),
+            "title": q.get("title"),
+            "ncsbn_category": q.get("ncsbn_category"),
+            "prompt": q.get("prompt"),
+            "options": q.get("options"),
+            "correct_option_id": q.get("correct_option_id"),
+            "rationale": q.get("rationale"),
+        }
+        for q in (exam.get("exit_questions") or [])
+    ]
+    return {
+        "status": "ok",
+        "scenario_id": scenario.get("scenario_id"),
+        "version": scenario.get("version"),
+        "title": scenario.get("title"),
+        "sme_vetting_status": "READY_FOR_RN_SME_SIGN_OFF",
+        "answer_key_summary": {
+            "mandatory_bedside_safety_checks": [
+                "POWER_ON_MONITOR",
+                "VERIFY_PATIENT_ID",
+                "RAISE_SIDE_RAILS",
+                "REVIEW_EHR_TAB (MAR, ALLERGIES, NOTES, LABS)",
+                "FLAG_ALLERGY (Penicillin Anaphylaxis -> Hold Cefazolin)",
+            ],
+            "priority_clinical_interventions": [
+                "PAUSE_PCA (Stop continuous Morphine 2 mg/hr infusion)",
+                "SET_BED_FOWLERS (Elevate HOB >= 30° Semi-Fowler's)",
+                "ADMINISTER_O2 (Apply supplemental oxygen)",
+                "ASSESS_JP_HEMORRHAGE (Measure 135 mL/hr sanguineous JP drain, re-compress bulb, reinforce primary gauze)",
+                "INITIATE_CRYSTALLOID_BOLUS (Start PRN 0.9% Normal Saline 500 mL IV bolus for BP 92/58)",
+                "VERIFY_GTUBE (Confirm LUQ gastrostomy wafer seal & bilious return)",
+            ],
+            "clinical_traps_penalized": [
+                "ALLERGY_CROSS_SENSITIVITY_ERROR (-40 Risk Recognition, Critical Safety Event)",
+                "OPIOID_DEMAND_BOLUS_TRAP (-30 Risk Recognition, Critical Safety Event)",
+                "SALINE_FLUSH_TRAP (-20 Risk Recognition)",
+                "REMOVE_PRIMARY_DRESSING_TRAP (-20 Risk Recognition)",
+                "TRENDELENBURG_TRAP (-20 Prioritisation)",
+                "CONTINUE_BASAL_TRAP (-15 Risk Recognition)",
+            ],
+            "station_questions": station_questions,
+            "exit_questions": exit_questions,
+        },
+        "scenario": scenario,
+    }
 
 
 @app.post("/api/evaluate")
 def evaluate_candidate_action(payload: TelemetryPayload):
     scenario = load_scenario()
     exam = scenario.get("exam_config", {})
+    station_labels = exam.get("station_labels", {})
     timeline = sorted(payload.action_timeline, key=lambda e: e.get("step", 0))
     sc = payload.safety_checks
     room = payload.final_room_state
     actions = [e.get("action") for e in timeline]
     ledger = DomainLedger()
 
-    def count(code: str) -> int:
-        return actions.count(code)
+    # ---------- In-Station Micro-Questions ----------
+    sq_responses = {r.question_id: r.selected_option_id for r in payload.station_question_responses}
+    station_question_results = []
+    sq_correct: Dict[str, bool] = {}
+    for sid, sq in (exam.get("station_questions") or {}).items():
+        qid = sq.get("question_id")
+        selected = sq_responses.get(qid)
+        correct = selected == sq.get("correct_option_id")
+        sq_correct[qid] = correct
+        option_text = {o["id"]: o["text"] for o in sq.get("options", [])}
+        station_question_results.append(
+            {
+                "question_id": qid,
+                "station_id": sid,
+                "station_label": station_labels.get(sid, sid),
+                "ncsbn_category": sq.get("ncsbn_category"),
+                "prompt": sq.get("prompt"),
+                "selected_option_id": selected,
+                "selected_option_text": option_text.get(selected),
+                "correct_option_id": sq.get("correct_option_id"),
+                "correct_option_text": option_text.get(sq.get("correct_option_id")),
+                "is_correct": correct,
+                "rationale": sq.get("rationale"),
+            }
+        )
 
-    # ---------- Exit questions (answer keys live in the scenario JSON) ----------
+    # ---------- Exit Questions (4 post-laparotomy NCLEX questions) ----------
     responses = {r.question_id: r.selected_option_id for r in payload.exit_question_responses}
     question_results = []
     q_correct: Dict[str, bool] = {}
@@ -173,23 +277,28 @@ def evaluate_candidate_action(payload: TelemetryPayload):
                 "rationale": q.get("rationale"),
             }
         )
+
     sbar_correct = q_correct.get("q1_sbar", False)
     abg_correct = q_correct.get("q2_abg", False)
+    hemorrhage_q_correct = q_correct.get("q3_hemorrhage_jp", False)
+    dehiscence_q_correct = q_correct.get("q4_dehiscence_evisceration", False)
 
     ended_code_blue = payload.end_reason == "CODE_BLUE_FAILURE"
     first_intervention = first_event(timeline, INTERVENTION_CODES)
     blind_events = [e for e in timeline if e.get("action") == "BLIND_INTERVENTION_PENALTY"]
 
-    # ---------- 1. KNOWLEDGE ----------
+    # ---------- 1. KNOWLEDGE (Max 100) ----------
     ev = first_event(timeline, "POWER_ON_MONITOR")
     if ev:
-        ledger.add("knowledge", 20, "Powered on bedside telemetry (SpO2 + ECG) to establish a baseline.", ev.get("step"))
+        ledger.add("knowledge", 15, "Powered on bedside telemetry (SpO2, HR, BP, RR, EtCO2) to establish an objective baseline.", ev.get("step"))
     else:
         ledger.add("knowledge", 0, "Never powered on the bedside monitor — no objective vital-sign baseline.")
+
     ev = first_event(timeline, "DOCUMENT_VITALS")
     if ev:
-        ledger.add("knowledge", 10, "Documented the abnormal vital signs.", ev.get("step"))
-    tab_points = {"mar": 15, "allergies": 15, "notes": 10, "labs": 5}
+        ledger.add("knowledge", 5, "Documented the abnormal post-laparotomy vital signs.", ev.get("step"))
+
+    tab_points = {"mar": 10, "allergies": 10, "notes": 10, "labs": 10}
     for tab, pts in tab_points.items():
         ev = next(
             (e for e in timeline if e.get("action") == "REVIEW_EHR_TAB" and e.get("tab") == tab),
@@ -199,33 +308,58 @@ def evaluate_candidate_action(payload: TelemetryPayload):
             ledger.add("knowledge", pts, f"Reviewed EHR {tab.upper()} tab.", ev.get("step"))
         else:
             ledger.add("knowledge", 0, f"Did not review the EHR {tab.upper()} tab.")
-    if abg_correct:
-        ledger.add("knowledge", 25, "Correctly interpreted the ABG (uncompensated respiratory acidosis) and selected naloxone.")
-    else:
-        ledger.add("knowledge", 0, "Missed the ABG interpretation / pharmacology follow-up question.")
 
-    # ---------- 2. PRIORITISATION ----------
+    ev = first_event(timeline, "VERIFY_GTUBE")
+    if ev or sc.get("gtube_verified") or room.get("gtube_verified"):
+        ledger.add("knowledge", 5, "Verified left-upper-quadrant gastrostomy (G-tube) wafer seal and bilious decompression return.", ev.get("step") if ev else None)
+    else:
+        ledger.add("knowledge", 0, "Did not verify gastrostomy (G-tube) site integrity.")
+
+    for sq_res in station_question_results:
+        if sq_res["is_correct"]:
+            ledger.add("knowledge", 5, f"Answered {sq_res['station_label']} clinical cue check ({sq_res['question_id']}) correctly.")
+        else:
+            ledger.add("knowledge", 0, f"Missed or skipped {sq_res['station_label']} clinical cue check ({sq_res['question_id']}).")
+
+    if abg_correct:
+        ledger.add("knowledge", 10, "Correctly interpreted the ABG (uncompensated respiratory acidosis) and selected naloxone.")
+    else:
+        ledger.add("knowledge", 0, "Missed the ABG interpretation / opioid reversal exit question.")
+
+    if dehiscence_q_correct:
+        ledger.add("knowledge", 10, "Correctly selected sterile warm saline-moistened dressings and Low Fowler's (knees flexed) for wound evisceration.")
+    else:
+        ledger.add("knowledge", 0, "Missed the wound dehiscence & evisceration emergency exit question.")
+
+    # ---------- 2. PRIORITISATION (Max 100) ----------
     if first_intervention is None:
-        ledger.add("prioritisation", 0, "No airway/breathing or medication interventions were performed.")
+        ledger.add("prioritisation", 0, "No airway, hemodynamic, or medication interventions were performed.")
     elif not blind_events:
-        ledger.add("prioritisation", 25, "Completed admission safety checks (monitor, ID, MAR, allergies) before intervening.")
+        ledger.add("prioritisation", 20, "Completed admission safety checks (monitor, ID, side rails, MAR, allergies) before intervening.")
     else:
         ledger.add("prioritisation", 0, f"Intervened before completing admission safety checks ({len(blind_events)} blind intervention(s)).")
 
     ev = first_event(timeline, "SET_BED_FOWLERS")
     if ev:
-        ledger.add("prioritisation", 15, "Elevated the head of bed (Fowler's) to support lung expansion.", ev.get("step"))
+        ledger.add("prioritisation", 12, "Elevated the head of bed (Semi/High Fowler's) to support diaphragmatic excursion.", ev.get("step"))
         if (room.get("bed_angle_deg") or 0) >= 30:
-            ledger.add("prioritisation", 5, "Head of bed remained elevated at the end of the bedside phase.")
+            ledger.add("prioritisation", 3, "Head of bed remained elevated at the end of the bedside phase.")
     else:
         ledger.add("prioritisation", 0, "Never elevated the head of bed.")
+
     ev = first_event(timeline, "ADMINISTER_O2")
     if ev:
-        ledger.add("prioritisation", 15, "Initiated supplemental oxygen per the PRN order.", ev.get("step"))
+        ledger.add("prioritisation", 12, "Initiated supplemental oxygen per the PRN order.", ev.get("step"))
         if room.get("o2_device"):
-            ledger.add("prioritisation", 5, "Supplemental oxygen remained in place at the end of the bedside phase.")
+            ledger.add("prioritisation", 3, "Supplemental oxygen remained in place at the end of the bedside phase.")
     else:
         ledger.add("prioritisation", 0, "Never applied supplemental oxygen.")
+
+    ev = first_event(timeline, "INITIATE_CRYSTALLOID_BOLUS")
+    if ev or room.get("crystalloid_bolus"):
+        ledger.add("prioritisation", 10, "Initiated PRN 0.9% Normal Saline 500 mL IV bolus via secondary port for hemorrhagic hypotension.", ev.get("step") if ev else None)
+    else:
+        ledger.add("prioritisation", 0, "Did not initiate the PRN 0.9% Normal Saline IV bolus despite hypotension (BP 92/58) and tachycardia.")
 
     first_abc = first_event(timeline, ABC_CODES)
     monitor_ev = first_event(timeline, "POWER_ON_MONITOR")
@@ -233,40 +367,65 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         ref_t = monitor_ev.get("timestamp_sec", 0) if monitor_ev else 0
         delay = max(0.0, float(first_abc.get("timestamp_sec", 0)) - float(ref_t))
         if delay <= 90:
-            ledger.add("prioritisation", 10, f"First ABC intervention within {delay:.0f}s of recognizing the cues.", first_abc.get("step"))
+            ledger.add("prioritisation", 10, f"First ABC/hemodynamic intervention within {delay:.0f}s of recognizing the cues.", first_abc.get("step"))
         elif delay <= 180:
-            ledger.add("prioritisation", 5, f"First ABC intervention delayed ({delay:.0f}s after cues available).", first_abc.get("step"))
+            ledger.add("prioritisation", 5, f"First ABC/hemodynamic intervention delayed ({delay:.0f}s after cues available).", first_abc.get("step"))
         else:
-            ledger.add("prioritisation", 0, f"First ABC intervention significantly delayed ({delay:.0f}s).")
+            ledger.add("prioritisation", 0, f"First ABC/hemodynamic intervention significantly delayed ({delay:.0f}s).")
+
     for e in timeline:
         if e.get("action") == "TRENDELENBURG_TRAP":
             ledger.add("prioritisation", -20, "Placed the patient in Trendelenburg, worsening diaphragmatic excursion.", e.get("step"))
-    if sbar_correct:
-        ledger.add("prioritisation", 25, "Selected a complete, structured SBAR escalation with a specific recommendation.")
-    else:
-        ledger.add("prioritisation", 0, "SBAR escalation was incomplete or unsafe.")
 
-    # ---------- 3. RISK RECOGNITION ----------
+    if sbar_correct:
+        ledger.add("prioritisation", 15, "Selected a complete SBAR surgical escalation covering both opioid depression and active JP hemorrhage.")
+    else:
+        ledger.add("prioritisation", 0, "SBAR surgical escalation was incomplete or unsafe.")
+
+    if hemorrhage_q_correct:
+        ledger.add("prioritisation", 15, "Correctly identified the postoperative hemorrhage & JP drain shock triad requiring STAT surgical escalation.")
+    else:
+        ledger.add("prioritisation", 0, "Missed the postoperative hemorrhage & JP drain recognition exit question.")
+
+    # ---------- 3. RISK RECOGNITION (Max 100) ----------
     ev = first_event(timeline, "VERIFY_PATIENT_ID")
     if ev:
-        ledger.add("risk_recognition", 15, "Verified the wristband with two identifiers.", ev.get("step"))
+        ledger.add("risk_recognition", 10, "Verified the wristband with two identifiers.", ev.get("step"))
         if first_intervention is None or ev.get("step", 0) < first_intervention.get("step", 0):
             ledger.add("risk_recognition", 5, "Patient identity confirmed before any intervention.")
     else:
         ledger.add("risk_recognition", 0, "Never verified patient identity.")
+
+    ev = first_event(timeline, "RAISE_SIDE_RAILS")
+    if ev or sc.get("side_rails_raised") or room.get("side_rails_up"):
+        ledger.add("risk_recognition", 10, "Raised and locked all bed side rails to prevent fall injury in a sedated, hypotensive post-op patient.", ev.get("step") if ev else None)
+    else:
+        ledger.add("risk_recognition", 0, "Left the upper bed transfer side rail lowered despite opioid sedation and hypotension (fall hazard).")
+
     ev = first_event(timeline, "FLAG_ALLERGY")
     if ev:
-        ledger.add("risk_recognition", 15, "Flagged the penicillin anaphylaxis allergy.", ev.get("step"))
+        ledger.add("risk_recognition", 10, "Flagged the penicillin anaphylaxis allergy.", ev.get("step"))
     else:
         ledger.add("risk_recognition", 0, "Did not flag the penicillin anaphylaxis allergy.")
 
     pause_ev = first_event(timeline, "PAUSE_PCA")
     if room.get("pca_paused"):
-        ledger.add("risk_recognition", 30, "Morphine PCA was paused (opioid source controlled).", pause_ev.get("step") if pause_ev else None)
+        ledger.add("risk_recognition", 25, "Morphine PCA was paused (opioid source controlled).", pause_ev.get("step") if pause_ev else None)
     elif pause_ev:
         ledger.add("risk_recognition", 10, "Paused the morphine PCA but it was later resumed.", pause_ev.get("step"))
     else:
         ledger.add("risk_recognition", 0, "Morphine PCA was never paused despite respiratory depression cues.")
+
+    jp_ev = first_event(timeline, "ASSESS_JP_HEMORRHAGE")
+    if room.get("jp_assessed") or sc.get("jp_hemorrhage_assessed") or jp_ev:
+        ledger.add(
+            "risk_recognition",
+            15,
+            "Measured 135 mL/hr sanguineous JP drain output, re-compressed the bulb for suction, reinforced strikethrough gauze, and flagged hemorrhage.",
+            jp_ev.get("step") if jp_ev else None,
+        )
+    else:
+        ledger.add("risk_recognition", 0, "Never assessed the blood-saturated laparotomy dressing or 135 mL/hr sanguineous JP bulb drain.")
 
     crisis = first_event(timeline, OPIOID_CRISIS_CODES)
     if crisis:
@@ -279,25 +438,33 @@ def evaluate_candidate_action(payload: TelemetryPayload):
             None,
         )
         if reversal:
-            ledger.add("risk_recognition", 10, "Recognized opioid toxicity and administered naloxone.", reversal.get("step"))
+            ledger.add("risk_recognition", 5, "Recognized opioid toxicity and administered naloxone.", reversal.get("step"))
         else:
             ledger.add("risk_recognition", 0, "Opioid toxicity developed but naloxone was not administered.")
     else:
-        ledger.add("risk_recognition", 10, "Prevented progression to opioid toxicity.")
+        ledger.add("risk_recognition", 5, "Prevented progression to acute opioid toxicity.")
+
+    if "UNRECOGNIZED_HEMORRHAGE_ESCALATION" not in actions and not room.get("hemorrhage_shock"):
+        ledger.add("risk_recognition", 5, "Addressed surgical bleeding / hemodynamics before progression to decompensated hypovolemic shock.")
+    else:
+        ledger.add("risk_recognition", 0, "Unaddressed surgical bleeding progressed to worsening hypovolemic shock (HR 136, BP 78/46).")
 
     had_critical = ended_code_blue or any(a in CRITICAL_CODES for a in actions)
     if not had_critical:
-        ledger.add("risk_recognition", 25, "No critical safety events.")
+        ledger.add("risk_recognition", 15, "No critical safety events.")
+
     penalty_map = {
         "ALLERGY_CROSS_SENSITIVITY_ERROR": (-40, "Administered cefazolin despite penicillin anaphylaxis (cross-sensitivity risk)."),
-        "OPIOID_DEMAND_BOLUS_TRAP": (-30, "Gave an additional opioid bolus to a patient with respiratory depression."),
+        "OPIOID_DEMAND_BOLUS_TRAP": (-30, "Gave an additional opioid bolus to a patient with respiratory depression and hypotension."),
         "SALINE_FLUSH_TRAP": (-20, "Rapid-flushed the PCA line, bolusing residual morphine."),
+        "REMOVE_PRIMARY_DRESSING_TRAP": (-20, "Peeled off the surgeon's primary laparotomy dressing (<24 hr post-op), disrupting hemostatic clots."),
         "CONTINUE_BASAL_TRAP": (-15, "Chose to continue the basal morphine infusion."),
     }
     for e in timeline:
         if e.get("action") in penalty_map:
             pts, text = penalty_map[e["action"]]
             ledger.add("risk_recognition", pts, text, e.get("step"))
+
     blind_total = 0
     for e in blind_events:
         if blind_total <= -20:
@@ -305,20 +472,26 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         ledger.add("risk_recognition", -5, f"Blind intervention: {e.get('detail', '')}", e.get("step"))
         blind_total -= 5
 
-    # ---------- 4. CLINICAL JUDGMENT ----------
+    # ---------- 4. CLINICAL JUDGMENT (Max 100) ----------
     end_spo2 = (room.get("vitals") or {}).get("spo2", 0) or 0
     if payload.stabilized_at_end:
-        ledger.add("clinical_judgment", 35, "Patient met stabilization criteria at the end of the bedside phase (SpO2 ≥ 95%, RR ≥ 14, PCA paused).")
+        ledger.add("clinical_judgment", 30, "Patient met full stabilization criteria (SpO2 ≥ 95%, RR ≥ 14, PCA paused, JP surgical hemorrhage assessed).")
     elif end_spo2 >= 90 and not ended_code_blue:
-        ledger.add("clinical_judgment", 15, f"Partial improvement (SpO2 {end_spo2}%) but stabilization criteria not met.")
+        ledger.add("clinical_judgment", 15, f"Partial improvement (SpO2 {end_spo2}%) but full respiratory + surgical stabilization criteria were not met.")
     else:
         ledger.add("clinical_judgment", 0, f"Patient was not stabilized (final SpO2 {end_spo2}%).")
+
     if payload.end_reason == "STUDENT_CONCLUDED":
         ledger.add("clinical_judgment", 10, "Concluded bedside care and escalated within the time limit.")
     elif payload.end_reason == "TIME_EXPIRED":
         ledger.add("clinical_judgment", 0, "Did not escalate before the time limit expired.")
-    ledger.add("clinical_judgment", 15 if sbar_correct else 0, "SBAR escalation question " + ("correct." if sbar_correct else "incorrect."))
-    ledger.add("clinical_judgment", 15 if abg_correct else 0, "ABG follow-up question " + ("correct." if abg_correct else "incorrect."))
+
+    for q_res in question_results:
+        ledger.add("clinical_judgment", 5 if q_res["is_correct"] else 0, f"{q_res['title']}: {'correct.' if q_res['is_correct'] else 'incorrect.'}")
+
+    for sq_res in station_question_results:
+        ledger.add("clinical_judgment", 5 if sq_res["is_correct"] else 0, f"In-station NCLEX synthesis ({sq_res['station_label']}): {'correct.' if sq_res['is_correct'] else 'incorrect.'}")
+
     trap_count = sum(1 for a in actions if a in TRAP_CODES)
     ledger.add(
         "clinical_judgment",
@@ -351,12 +524,15 @@ def evaluate_candidate_action(payload: TelemetryPayload):
     else:
         band = {"level": "BELOW_STANDARD", "label": "BELOW PASSING STANDARD", "detail": "Significant gaps in clinical judgment for this case type."}
 
-    # ---------- Missed critical actions ----------
+    # ---------- Missed critical actions (8 bedside safety & priority actions) ----------
+    total_critical_actions = 8
     missed = []
     if not sc.get("monitor_powered_on"):
         missed.append("POWER_ON_BEDSIDE_MONITOR")
     if not sc.get("wristband_verified"):
         missed.append("VERIFY_PATIENT_WRISTBAND_ID")
+    if not sc.get("side_rails_raised") and not room.get("side_rails_up"):
+        missed.append("RAISE_BED_SIDE_RAILS")
     if not sc.get("allergy_flagged"):
         missed.append("FLAG_PENICILLIN_ANAPHYLAXIS_ALLERGY")
     if not room.get("pca_paused"):
@@ -365,18 +541,20 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         missed.append("APPLY_SUPPLEMENTAL_OXYGEN")
     if (room.get("bed_angle_deg") or 0) < 30:
         missed.append("ELEVATE_HEAD_OF_BED_FOWLERS")
+    if not room.get("jp_assessed") and not sc.get("jp_hemorrhage_assessed"):
+        missed.append("ASSESS_JP_SURGICAL_DRAIN_HEMORRHAGE")
 
     # ---------- NCJMM layers demonstrated ----------
     layers = []
     if sc.get("monitor_powered_on"):
         layers.append("RECOGNIZE_CUES")
-    if sc.get("mar_reviewed") or sc.get("notes_reviewed"):
+    if sc.get("mar_reviewed") or sc.get("notes_reviewed") or sc.get("labs_reviewed"):
         layers.append("ANALYZE_CUES")
-    if abg_correct:
+    if abg_correct or hemorrhage_q_correct:
         layers.append("PRIORITIZE_HYPOTHESES")
-    if pause_ev or first_event(timeline, "ADMINISTER_NALOXONE"):
+    if pause_ev or first_event(timeline, "ADMINISTER_NALOXONE") or first_event(timeline, "ASSESS_JP_HEMORRHAGE"):
         layers.append("GENERATE_SOLUTIONS")
-    if first_event(timeline, {"SET_BED_FOWLERS", "ADMINISTER_O2"}):
+    if first_event(timeline, {"SET_BED_FOWLERS", "ADMINISTER_O2", "INITIATE_CRYSTALLOID_BOLUS"}):
         layers.append("TAKE_ACTION")
     reassessed = first_abc is not None and any(
         e.get("action") == "DOCUMENT_VITALS" and e.get("step", 0) > first_abc.get("step", 0)
@@ -386,16 +564,20 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         layers.append("EVALUATE_OUTCOMES")
 
     topics = []
-    if scores["risk_recognition"] < 80:
-        topics.append("Opioid-induced respiratory depression: PCA safety, sedation scales & naloxone")
+    if not room.get("jp_assessed") or not hemorrhage_q_correct or "REMOVE_PRIMARY_DRESSING_TRAP" in actions:
+        topics.append("Postoperative hemorrhage: Jackson-Pratt (JP) bulb suction, dressing reinforcement & hypovolemic shock cues")
+    if not dehiscence_q_correct or sq_correct.get("sq_surgical_wound") is False:
+        topics.append("Abdominal wound dehiscence & evisceration emergency care (warm sterile saline dressings & Low Fowler's)")
+    if scores["risk_recognition"] < 80 or not room.get("pca_paused"):
+        topics.append("Opioid-induced respiratory depression: PCA safety, fall precautions (side rails) & naloxone")
     if any(a == "ALLERGY_CROSS_SENSITIVITY_ERROR" for a in actions) or not sc.get("allergy_flagged"):
         topics.append("Penicillin–cephalosporin cross-sensitivity & allergy verification")
     if scores["prioritisation"] < 80:
-        topics.append("Maslow/ABC prioritisation & SBAR escalation")
+        topics.append("Maslow/ABC prioritisation, isotonic fluid resuscitation & SBAR surgical escalation")
     if not abg_correct:
-        topics.append("ABG interpretation (respiratory acidosis)")
+        topics.append("ABG interpretation (uncompensated respiratory acidosis)")
     if not topics:
-        topics.append("Maintain readiness: practice a new NGN case type (e.g., transfusion reaction or sepsis)")
+        topics.append("Maintain readiness: practice a new NGN case type (e.g., acute blood transfusion reaction or septic shock)")
 
     # ---------- Decision tree ----------
     decision_tree = []
@@ -421,8 +603,22 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         if d["classification"] in {"TRAP", "CRITICAL_ERROR", "PENALTY"}
     ]
 
-    adaptive_followup = (
-        {
+    if not room.get("jp_assessed") or "REMOVE_PRIMARY_DRESSING_TRAP" in actions:
+        adaptive_followup = {
+            "question_id": "adaptive_jp_drain_suction",
+            "ncsbn_category": "Reduction of Risk Potential",
+            "prompt": "When emptying and resetting a Jackson-Pratt (JP) closed-wound suction drain that contains 135 mL of bright-red sanguineous fluid, how must the nurse re-establish negative-pressure suction and manage the saturated primary laparotomy gauze (<24 hr post-op)?",
+            "options": [
+                "Open the pouring spout, measure drainage in a calibrated cup, fully compress the bulb flat with your hand BEFORE recapping the plug, and reinforce OVER the primary surgical gauze with sterile abdominal pads while notifying the surgeon STAT.",
+                "Recap the pouring spout while the bulb is fully inflated so positive air pressure tamponades the surgical bed, and peel off the bloody primary gauze.",
+                "Connect the Jackson-Pratt tubing directly to high continuous wall suction (-200 mmHg).",
+                "Leave the JP drain plug uncapped to gravity drainage and irrigate the surgical drain lumen with tap water.",
+            ],
+            "correct_option_index": 0,
+            "rationale": "Compressing the JP bulb flat before sealing the plug creates gentle negative suction; within the first 24 hours post-laparotomy, blood-soaked primary dressings are reinforced (never peeled off) to avoid dislodging clots while escalating to surgery.",
+        }
+    elif not room.get("pca_paused"):
+        adaptive_followup = {
             "question_id": "adaptive_opioid_antagonist",
             "ncsbn_category": "Pharmacological and Parenteral Therapies",
             "prompt": "Because the Morphine PCA continued infusing, the patient progresses to severe respiratory depression (RR 6/min, SpO2 78%, EtCO2 64 mmHg). Which PRN medication and nursing action is immediately indicated?",
@@ -435,28 +631,28 @@ def evaluate_candidate_action(payload: TelemetryPayload):
             "correct_option_index": 0,
             "rationale": "Naloxone is a competitive mu-opioid receptor antagonist that reverses opioid-induced respiratory depression; stopping the PCA prevents ongoing opioid delivery.",
         }
-        if not room.get("pca_paused")
-        else {
+    else:
+        adaptive_followup = {
             "question_id": "adaptive_renarcotization_monitoring",
             "ncsbn_category": "Reduction of Risk Potential / Physiological Adaptation",
-            "prompt": "Thirty minutes after stabilizing the patient and pausing the Morphine PCA, why must the nurse continue close respiratory and sedation monitoring (Pasero Opioid-Induced Sedation Scale)?",
+            "prompt": "Thirty minutes after stabilizing the patient and pausing the Morphine PCA, why must the nurse continue close respiratory, sedation (Pasero scale), and JP drain output monitoring?",
             "options": [
-                "Naloxone has a shorter biological half-life (30–90 min) than morphine, creating a risk of renarcotization and recurrent respiratory depression.",
+                "Naloxone has a shorter half-life (30–90 min) than morphine (risk of renarcotization), and crystalloid resuscitation raising blood pressure can unmask ongoing surgical-bed bleeding.",
                 "Supplemental oxygen via Non-Rebreather permanently eliminates hypercapnia.",
-                "Fowler’s position increases venous return to the right atrium and causes pulmonary edema.",
+                "Semi-Fowler's position causes rapid gastrostomy tube dislodgement.",
                 "Cefazolin cross-reacts with opioid receptors after 30 minutes.",
             ],
             "correct_option_index": 0,
-            "rationale": "Because naloxone is metabolized faster than most opioids, sedation and respiratory depression can recur ('renarcotization') once the antagonist wears off.",
+            "rationale": "Naloxone wears off faster than morphine ('renarcotization'), and restoring arterial pressure with IV crystalloids can increase bleeding from an unligated mesenteric vessel — requiring serial vital sign and JP output surveillance.",
         }
-    )
 
     return {
         "session_id": payload.session_id,
+        "student_id": payload.student_id,
         "scenario_id": payload.scenario_id,
         "exam_mode": payload.exam_mode,
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
-        "engine": "Study AI NGN Evaluation Engine v3.0 (FastAPI :8000)",
+        "engine": "Study AI NGN Evaluation Engine v3.1 (FastAPI :8000)",
         "overall_competency_score": overall,
         "readiness_band": band,
         "end_reason": payload.end_reason,
@@ -465,6 +661,7 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         "time_limit_sec": payload.time_limit_sec,
         "stabilized_at_end": payload.stabilized_at_end,
         "critical_safety_events": critical_events,
+        "total_critical_actions": total_critical_actions,
         "diagnostic_breakdown": {
             d: {
                 "score": scores[d],
@@ -477,6 +674,7 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         "ncjmm_layers_demonstrated": layers,
         "missed_critical_actions": missed,
         "recommended_practice_topics": topics,
+        "station_questions": station_question_results,
         "exit_questions": question_results,
         "adaptive_followup_question": adaptive_followup,
         "decision_tree": decision_tree,

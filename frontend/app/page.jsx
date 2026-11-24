@@ -21,15 +21,10 @@ import {
   FileText,
   Sliders,
   Syringe,
-  Sun,
-  Moon,
+  Droplets,
   Volume2,
   VolumeX,
-  Camera,
-  Footprints,
-  Clock,
   LogOut,
-  Gauge,
 } from 'lucide-react';
 import scenarioData from '../config/scenario_hypoxia.json';
 import { sendTelemetry } from '../utils/telemetryEmitter';
@@ -38,6 +33,7 @@ import { clinicalAudio } from '../utils/clinicalAudio';
 import {
   EXAM_STAGES,
   computeVitals,
+  parseSystolic,
   isStabilized,
   isNaloxoneIndicated,
   formatClock,
@@ -79,6 +75,7 @@ const OBJECT_ICONS = {
   wristband: ShieldCheck,
   ehr_tablet: FileText,
   hospital_bed: Sliders,
+  surgical_site: Droplets,
   wall_oxygen: Wind,
   iv_pump: Syringe,
 };
@@ -88,6 +85,12 @@ const initialClinicalState = () => ({
   monitorConnected: false,
   vitalsDocumented: false,
   verifiedId: false,
+  sideRailsUp: false,
+  jpAssessed: false,
+  gtubeVerified: false,
+  primaryDressingRemoved: false,
+  crystalloidBolus: false,
+  hemorrhageShock: false,
   ehrTabsViewed: [],
   activeEhrTab: 'notes',
   allergyFlagged: false,
@@ -140,8 +143,16 @@ export default function StudyAiExamPage() {
   const [actionTimeline, setActionTimeline] = useState([]);
   const [showConcludeConfirm, setShowConcludeConfirm] = useState(false);
   const [endInfo, setEndInfo] = useState(null);
+  const [stationAnswers, setStationAnswers] = useState({});
   const [exitAnswers, setExitAnswers] = useState({});
   const [submission, setSubmission] = useState(EMPTY_SUBMISSION);
+  const [platformParams, setPlatformParams] = useState({
+    sessionId: null,
+    studentId: null,
+    callbackUrl: null,
+    returnUrl: null,
+  });
+  const autostartHandledRef = useRef(false);
 
   const examStartRef = useRef(null);
   const endedRef = useRef(false);
@@ -203,6 +214,7 @@ export default function StudyAiExamPage() {
     const status = {
       monitor_powered_on: c.monitorConnected,
       wristband_verified: c.verifiedId,
+      side_rails_raised: c.sideRailsUp,
       mar_reviewed: c.ehrTabsViewed.includes('mar'),
       allergies_reviewed: c.ehrTabsViewed.includes('allergies'),
     };
@@ -277,6 +289,17 @@ export default function StudyAiExamPage() {
       recordEvent('UNTREATED_HYPOXIA_DETERIORATION');
     }
 
+    // Branch D: unrecognized surgical JP drain bleeding progresses to hypovolemic shock (90s)
+    if (
+      bc.branch_d_hemorrhagic_shock &&
+      !clin.hemorrhageShock &&
+      !clin.jpAssessed &&
+      t >= bc.branch_d_hemorrhagic_shock.trigger_delay_sec
+    ) {
+      patch({ hemorrhageShock: true });
+      recordEvent('UNRECOGNIZED_HEMORRHAGE_ESCALATION', 'surgical_site');
+    }
+
     // Branch B: O2 (or a confirmed basal rate) with morphine still infusing -> bradypnea crash
     const masking =
       clin.opioidLevel === 'baseline' &&
@@ -345,8 +368,8 @@ export default function StudyAiExamPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [examStage, showConcludeConfirm]);
 
-  /* ---------------- Stage transitions ---------------- */
-  const handleBegin = () => {
+  /* ---------------- Stage transitions & Platform URL Integration ---------------- */
+  const handleBegin = useCallback(() => {
     examStartRef.current = Date.now();
     endedRef.current = false;
     maskingStartRef.current = null;
@@ -358,14 +381,38 @@ export default function StudyAiExamPage() {
     setCameraFocusId('overview');
     setCameraTrigger((t) => t + 1);
     recordEvent('BEGIN_TIMED_ASSESSMENT', null, `Time limit ${formatClock(EX.duration_sec)}`);
-  };
+  }, [recordEvent]);
+
+  // Oluwaseun StudyAI Platform Integration: ?autostart=1 skips the duplicate intro screen
+  // and drops the candidate directly into the 3D bedside assessment while preserving session/student IDs
+  useEffect(() => {
+    if (typeof window === 'undefined' || autostartHandledRef.current) return;
+    autostartHandledRef.current = true;
+    const sp = new URLSearchParams(window.location.search);
+    const sessionId = sp.get('session_id');
+    const studentId = sp.get('student_id');
+    const callbackUrl = sp.get('callback_url') || process.env.NEXT_PUBLIC_PLATFORM_CALLBACK_URL || null;
+    const returnUrl = sp.get('return_url') || null;
+    if (sessionId || studentId || callbackUrl || returnUrl) {
+      setPlatformParams({ sessionId, studentId, callbackUrl, returnUrl });
+    }
+    const autostart =
+      sp.get('autostart') === '1' ||
+      sp.get('autostart') === 'true' ||
+      sp.get('skip_intro') === '1' ||
+      sp.get('entry') === 'direct';
+    if (autostart) {
+      handleBegin();
+    }
+  }, [handleBegin]);
 
   const buildPayload = () => {
     const c = endInfo.clin;
+    const sqConfigs = Object.values(EX.station_questions || {});
     return {
-      session_id: 'ngn_' + Math.random().toString(36).slice(2, 10),
+      session_id: platformParams.sessionId || 'ngn_' + Math.random().toString(36).slice(2, 10),
       scenario_id: scenarioData.scenario_id,
-      student_id: 'stu_4410',
+      student_id: platformParams.studentId || 'stu_4410',
       exam_mode: EX.mode,
       research_scenario_mapping: [
         'SCENARIO_1_POSTOP_DETERIORATION',
@@ -380,6 +427,10 @@ export default function StudyAiExamPage() {
         monitor_powered_on: c.monitorConnected,
         vitals_documented: c.vitalsDocumented,
         wristband_verified: c.verifiedId,
+        side_rails_raised: c.sideRailsUp,
+        jp_hemorrhage_assessed: c.jpAssessed,
+        gtube_verified: c.gtubeVerified,
+        crystalloid_bolus_started: c.crystalloidBolus,
         mar_reviewed: c.ehrTabsViewed.includes('mar'),
         allergies_reviewed: c.ehrTabsViewed.includes('allergies'),
         notes_reviewed: c.ehrTabsViewed.includes('notes'),
@@ -391,14 +442,23 @@ export default function StudyAiExamPage() {
       },
       action_timeline: actionTimeline,
       traps_triggered: actionTimeline.filter((e) => SCORED_CLASSES.includes(e.classification)),
+      station_question_responses: sqConfigs.map((sq) => ({
+        question_id: sq.question_id,
+        selected_option_id: stationAnswers[sq.question_id] || null,
+      })),
       exit_question_responses: EX.exit_questions.map((q) => ({
         question_id: q.question_id,
         selected_option_id: exitAnswers[q.question_id] || null,
       })),
       final_room_state: {
         bed_angle_deg: c.bedAngle,
+        side_rails_up: c.sideRailsUp,
         o2_device: c.o2Device,
         pca_paused: c.pcaPaused,
+        jp_assessed: c.jpAssessed,
+        gtube_verified: c.gtubeVerified,
+        crystalloid_bolus: c.crystalloidBolus,
+        hemorrhage_shock: c.hemorrhageShock,
         opioid_state: c.opioidLevel,
         monitor_powered_on: c.monitorConnected,
         stations_inspected: inspectedRef.current,
@@ -412,6 +472,24 @@ export default function StudyAiExamPage() {
     const res = await sendTelemetry(payload);
     if (res.ok && res.data?.diagnostic_breakdown) {
       setSubmission({ status: 'done', payload, result: res.data, error: null });
+      // Notify parent StudyAI dashboard if embedded via iframe or configured with a webhook URL
+      if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage(
+            { type: 'STUDYAI_SIMULATION_COMPLETE', payload, evaluation: res.data },
+            '*'
+          );
+        } catch {
+          // ignore cross-origin frame restrictions
+        }
+      }
+      if (platformParams.callbackUrl) {
+        fetch(platformParams.callbackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload, evaluation: res.data }),
+        }).catch((err) => console.warn('[StudyAI] Platform callback delivery warning:', err));
+      }
     } else {
       setSubmission({
         status: 'error',
@@ -441,6 +519,7 @@ export default function StudyAiExamPage() {
     setInspectedStations([]);
     setExamElapsed(0);
     setEndInfo(null);
+    setStationAnswers({});
     setExitAnswers({});
     setSubmission(EMPTY_SUBMISSION);
     setActiveDrawerId(null);
@@ -589,6 +668,56 @@ export default function StudyAiExamPage() {
     recordEvent(opt.event_code, 'iv_pump', opt.label);
   };
 
+  const handleRaiseSideRails = () => {
+    if (clin.sideRailsUp) return;
+    cueNurse('hospital_bed');
+    patch({ sideRailsUp: true });
+    recordEvent('RAISE_SIDE_RAILS', 'hospital_bed', 'All 4 bed side rails raised and locked');
+  };
+
+  const handleSurgicalAction = (act) => {
+    cueNurse('surgical_site');
+    if (act.event_code === 'ASSESS_JP_HEMORRHAGE') {
+      if (clin.jpAssessed) return;
+      patch({ jpAssessed: true });
+      recordEvent(
+        'ASSESS_JP_HEMORRHAGE',
+        'surgical_site',
+        'JP output 135 mL/hr sanguineous measured, bulb compressed, midline dressing reinforced & hemorrhage flagged'
+      );
+    } else if (act.event_code === 'VERIFY_GTUBE') {
+      if (clin.gtubeVerified) return;
+      patch({ gtubeVerified: true });
+      recordEvent('VERIFY_GTUBE', 'surgical_site', 'LUQ gastrostomy wafer intact, 40 mL bilious return');
+    } else if (act.event_code === 'REMOVE_PRIMARY_DRESSING_TRAP') {
+      if (clin.primaryDressingRemoved) return;
+      patch({ primaryDressingRemoved: true });
+      recordEvent('REMOVE_PRIMARY_DRESSING_TRAP', 'surgical_site', act.label);
+    }
+  };
+
+  const handleCrystalloidBolus = () => {
+    if (clin.crystalloidBolus) return;
+    cueNurse('iv_pump');
+    checkBlind('0.9% Normal Saline 500 mL IV Bolus', 'iv_pump');
+    patch({ crystalloidBolus: true });
+    recordEvent(
+      'INITIATE_CRYSTALLOID_BOLUS',
+      'iv_pump',
+      `0.9% Normal Saline 500 mL IV bolus started (BP ${vitals.bp}, HR ${vitals.hr})`
+    );
+  };
+
+  const handleAnswerStationQuestion = (questionId, optionId) => {
+    setStationAnswers((prev) => ({ ...prev, [questionId]: optionId }));
+    recordEvent(
+      'ANSWER_STATION_QUESTION',
+      activeDrawerId,
+      `Station question ${questionId} -> Option ${optionId}`,
+      { question_id: questionId, selected_option_id: optionId }
+    );
+  };
+
   const handleSetBed = (pos) => {
     if (pos.angle === clin.bedAngle) return;
     cueNurse('hospital_bed');
@@ -656,7 +785,8 @@ export default function StudyAiExamPage() {
   // Clinical colour helper for Figma 36:68 "Vitals — live" card
   const hrColor = vitals.hr > 105 || vitals.hr < 55 ? '#e8b04b' : '#bfe8d6';
   const spo2Color = vitals.spo2 < 90 ? '#ee8572' : vitals.spo2 < 94 ? '#e8b04b' : '#bfe8d6';
-  const rrColor = vitals.rr <= 10 ? '#ee8572' : vitals.rr > 22 ? '#e8b04b' : '#bfe8d6';
+  const rrColor = vitals.rr <= 12 ? '#ee8572' : vitals.rr > 22 ? '#e8b04b' : '#bfe8d6';
+  const bpColor = parseSystolic(vitals.bp) < 95 ? '#ee8572' : '#bfe8d6';
 
   return (
     <div
@@ -685,9 +815,14 @@ export default function StudyAiExamPage() {
           vitals={vitals}
           monitorConnected={clin.monitorConnected}
           bedAngle={clin.bedAngle}
+          sideRailsUp={clin.sideRailsUp}
           o2Device={clin.o2Device}
           pcaPaused={clin.pcaPaused}
           verifiedId={clin.verifiedId}
+          jpAssessed={clin.jpAssessed}
+          primaryDressingRemoved={clin.primaryDressingRemoved}
+          hemorrhageShock={clin.hemorrhageShock}
+          crystalloidBolus={clin.crystalloidBolus}
           completedObjects={inspectedStations}
           selectedObjectId={activeDrawerId}
           onSelectObject={handleSelectStation}
@@ -915,7 +1050,7 @@ export default function StudyAiExamPage() {
                   [
                     ['HR', `${vitals.hr}`, hrColor],
                     ['SpO₂', `${vitals.spo2}%`, spo2Color],
-                    ['BP', vitals.bp, '#bfe8d6'],
+                    ['BP', vitals.bp, bpColor],
                     ['RR', `${vitals.rr}`, rrColor],
                     ['EtCO₂', `${vitals.etco2}`, '#bfe8d6'],
                   ].map(([label, val, col]) => (
@@ -1250,11 +1385,21 @@ export default function StudyAiExamPage() {
                 onPrepareNaloxone={handlePrepareNaloxone}
                 onAdministerNaloxone={handleAdministerNaloxone}
                 bedAngle={clin.bedAngle}
+                sideRailsUp={clin.sideRailsUp}
+                onRaiseSideRails={handleRaiseSideRails}
                 onSetBed={handleSetBed}
+                jpAssessed={clin.jpAssessed}
+                gtubeVerified={clin.gtubeVerified}
+                primaryDressingRemoved={clin.primaryDressingRemoved}
+                onSurgicalAction={handleSurgicalAction}
                 o2Device={clin.o2Device}
                 onSetO2={handleSetO2}
                 pcaPaused={clin.pcaPaused}
                 onPcaOption={handlePcaOption}
+                crystalloidBolus={clin.crystalloidBolus}
+                onCrystalloidBolus={handleCrystalloidBolus}
+                stationAnswers={stationAnswers}
+                onAnswerStationQuestion={handleAnswerStationQuestion}
               />
             </DraggableGlassPanel>
           )}
@@ -1343,6 +1488,7 @@ export default function StudyAiExamPage() {
           payload={submission.payload}
           result={submission.result}
           error={submission.error}
+          returnUrl={platformParams.returnUrl}
           onRetry={() => submitAttempt(submission.payload)}
           onNewAttempt={handleNewAttempt}
         />

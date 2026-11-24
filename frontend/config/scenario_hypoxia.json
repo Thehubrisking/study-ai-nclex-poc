@@ -1,25 +1,26 @@
 {
-  "scenario_id": "nclex_poc_hypoxia_01",
-  "title": "Acute Post-Operative Hypoxia & Opioid-Induced Respiratory Depression",
-  "version": "2.0",
-  "last_updated": "2026-11-08",
+  "scenario_id": "nclex_poc_laparotomy_v3",
+  "title": "Post-Exploratory Laparotomy Deterioration: Opioid Respiratory Depression & Postoperative Hemorrhage",
+  "version": "3.0",
+  "last_updated": "2026-11-24",
+  "vetted_status": "READY_FOR_SME_VALIDATION",
   "research_alignment": {
     "synthesized_proposed_scenarios": [
       {
         "scenario_no": 1,
-        "name": "Postoperative patient deterioration",
+        "name": "Postoperative patient deterioration (Hemorrhage, JP Drain & Wound Complications)",
         "ncsbn_category": "Reduction of Risk Potential",
         "exam_weighting": "9-15%"
       },
       {
         "scenario_no": 2,
-        "name": "Medication adverse reaction (IV Morphine PCA)",
+        "name": "Medication adverse reaction (IV Morphine PCA Respiratory Depression)",
         "ncsbn_category": "Pharmacological and Parenteral Therapies",
         "exam_weighting": "13-19%"
       },
       {
         "scenario_no": 5,
-        "name": "Respiratory distress or impaired oxygenation",
+        "name": "Respiratory distress & hypovolemic perfusion compromise",
         "ncsbn_category": "Physiological Adaptation",
         "exam_weighting": "11-17%"
       }
@@ -28,18 +29,17 @@
       {
         "ncsbn_category": "Management of Care",
         "exam_weighting": "15-21%",
-        "focus": "Prioritisation of nursing care & SBAR escalation"
+        "focus": "Prioritisation of nursing care & SBAR surgical escalation"
       },
       {
         "ncsbn_category": "Safety and Infection Prevention and Control",
         "exam_weighting": "10-16%",
-        "focus": "Patient ID wristband & allergy verification prior to intervention"
+        "focus": "Bed side rails up, two-identifier wristband check, allergy cross-sensitivity & sterile dressing safety"
       }
     ],
     "clinical_frameworks": [
       "NCSBN Clinical Judgment Measurement Model (NCJMM - 6 Layers)",
-      "Simple Nursing Core 3 (Pharmacology, Med-Surg, Priority Care)",
-      "Kaplan Priority Strategies (Maslow's Hierarchy / ABCs, Nursing Process, Safety Strategy)"
+      "Saunders / Kaplan / Archer NCLEX-RN Priority Strategies (ABCs, Hemorrhage Shock Triad, Safety)"
     ],
     "study_ai_diagnostic_domains": [
       "knowledge",
@@ -54,15 +54,16 @@
     "age": 62,
     "gender": "Male",
     "mrn": "MRN-884920",
-    "surgical_history": "4 hours post-abdominal exploratory laparotomy",
-    "presenting_status": "Restless, drowsy between spasms, clutching abdomen, shallow tachypnea"
+    "surgical_history": "4 hours post-abdominal exploratory laparotomy with gastrostomy tube & right lower quadrant JP drain",
+    "presenting_status": "Drowsy, pale skin (pallor), cool clammy forehead (diaphoresis), shallow slow respirations; left bed rail lowered from transfer; midline abdominal gauze, JP bulb drain, and gastrostomy tube in place"
   },
   "patient_verbal_cues": {
-    "admission_arrival": "Nurse... just got back from recovery... belly hurts and I feel so groggy...",
-    "hypoxic": "Ugh... my chest feels tight... can't stay awake...",
-    "bradypnea": "[Unresponsive to verbal stimuli — shallow gasping]",
-    "stabilized": "Thank you, nurse... sitting up with the oxygen helped right away.",
-    "partial_support": "Breathing is a little easier... still feeling very drowsy..."
+    "admission_arrival": "Nurse... just got back from recovery... my belly feels warm and wet under the bandage, and I feel so dizzy and sleepy...",
+    "hypoxic": "Ugh... hard to catch my breath... feeling cold and lightheaded...",
+    "bradypnea": "[Unresponsive to verbal stimuli — pale, diaphoretic, shallow gasping at 8/min]",
+    "hemorrhage_shock": "Nurse... everything is spinning... I feel so cold and clammy...",
+    "stabilized": "Thank you, nurse... sitting up with the oxygen helped me breathe, and the dizziness is easing.",
+    "partial_support": "Breathing is a little easier... still feeling weak and lightheaded..."
   },
   "exam_config": {
     "mode": "NGN_EXAM_READINESS",
@@ -74,34 +75,35 @@
     "stabilization_criteria": {
       "spo2_min": 95,
       "rr_min": 14,
-      "requires_pca_paused": true
+      "requires_pca_paused": true,
+      "requires_jp_assessed": true
     },
     "briefing": {
       "exam_title": "NCLEX-RN Clinical Case Briefing",
-      "exam_subtitle": "Next-Generation NCLEX (NGN) Exam Readiness Assessment • Case 01 • Medical-Surgical",
-      "candidate_instructions": "You are the receiving RN on the Medical-Surgical floor. John Doe (62M) has just arrived from PACU (4 hours post-exploratory laparotomy). You have 5:00 minutes to complete your admission safety checks, recognize any acute physiological cues, intervene appropriately, and escalate care.",
+      "exam_subtitle": "Next-Generation NCLEX (NGN) Exam Readiness Assessment • Case 01 • Post-Op Exploratory Laparotomy",
+      "candidate_instructions": "You are the receiving RN on the Surgical Care Unit. John Doe (62M) arrived 4 hours post-abdominal exploratory laparotomy with a Morphine PCA, gastrostomy tube (G-tube), and Jackson-Pratt (JP) surgical drain. You have 5:00 minutes to complete your admission safety checks, assess cardiopulmonary and surgical-site cues, answer bedside clinical prompts, intervene safely, and escalate via SBAR.",
       "exam_rules": [
         "The 5:00 clock starts when you enter the room and cannot be paused.",
-        "The simulation never acts on your behalf. Every assessment and intervention must be initiated by you.",
-        "Station labels are neutral. Findings are only revealed after you walk to and inspect a station.",
-        "No feedback is given during the bedside phase. All decisions are scored after you exit.",
-        "The bedside phase ends when you select [Conclude Bedside Care & Escalate (SBAR)], when time expires, or if the patient remains in critical hypoxia."
+        "The simulation never acts on your behalf. Every safety check, assessment, and intervention must be initiated by you.",
+        "Station labels are neutral. Findings and in-station NCLEX checks appear after you walk to and inspect each station.",
+        "No correctness hints are shown during the bedside phase. All actions and question responses are scored together on exit.",
+        "Unaddressed complications (opioid hypoventilation or active surgical bleeding) escalate dynamically over time."
       ],
-      "controls_hint": "Move: WASD / Arrow keys or click the floor • Inspect: click a station (the nurse walks there first) • Close a station panel: Esc",
-      "controls_hint_touch": "Move: Tap the floor or use the bottom Walk bar • Inspect: Tap a station pin or Walk bar button • Camera: 1-finger drag to orbit, 2-finger pinch to zoom",
-      "start_button_label": "Enter Room & Begin Timed Assessment (05:00)"
+      "controls_hint": "Orbit: Drag mouse / scroll wheel • Move nurse: WASD / Arrow keys or click floor • Inspect: click any station pin • Close panel: Esc",
+      "controls_hint_touch": "Orbit: 1-finger drag / 2-finger pinch • Move: Tap floor or bottom station bar • Inspect: Tap any station pin",
+      "start_button_label": "Start scenario"
     },
-    "bedside_phase_label": "CASE 01 • BEDSIDE ASSESSMENT",
+    "bedside_phase_label": "CASE 01 • POST-OP EXPLORATORY LAPAROTOMY",
     "conclude_button_label": "Conclude Bedside Care & Escalate (SBAR)",
     "conclude_button_short_label": "Escalate (SBAR)",
     "conclude_confirm": {
       "title": "Conclude bedside care?",
-      "body": "You will leave the room and cannot return. You will then complete the SBAR escalation and follow-up questions.",
-      "confirm_label": "Conclude & Proceed to SBAR",
-      "cancel_label": "Return to Bedside"
+      "body": "You will leave the room and proceed to 4 post-simulation NCLEX clinical escalation questions.",
+      "confirm_label": "Continue to exit questions",
+      "cancel_label": "Return to bedside"
     },
     "end_reasons": {
-      "STUDENT_CONCLUDED": "You concluded bedside care and escalated to the surgical resident.",
+      "STUDENT_CONCLUDED": "You concluded bedside care and escalated to the surgical team.",
       "TIME_EXPIRED": "The 5:00 bedside time limit expired.",
       "CODE_BLUE_FAILURE": "The patient remained in critical hypoxia (SpO2 below 80%) for more than 30 seconds. A Code Blue was called and the bedside phase ended."
     },
@@ -109,29 +111,73 @@
       "ehr_tablet",
       "iv_pump",
       "hospital_bed",
+      "surgical_site",
       "wall_oxygen",
       "wristband",
       "bedside_monitor"
     ],
-    "walk_bar_order_note": "Physical room layout starting from the door. Deliberately NOT the clinical priority sequence — do not reorder to match the answer key.",
+    "walk_bar_order_note": "Physical room layout starting from the door. Deliberately NOT the clinical priority sequence.",
     "station_labels": {
       "bedside_monitor": "Bedside Monitor",
       "wristband": "Patient Wrist",
       "ehr_tablet": "EHR Workstation",
-      "hospital_bed": "Bed Frame Controls",
+      "hospital_bed": "Bed & Side Rails",
+      "surgical_site": "Surgical Dressing & Drains",
       "wall_oxygen": "Wall Gas Outlet",
       "iv_pump": "IV Infusion Pump"
     },
     "monitor": {
       "standby_title": "MONITOR OFF / STANDBY",
-      "standby_text": "No telemetry is displayed. The SpO2 probe and ECG leads are not applied.",
-      "power_on_label": "Power On Monitor & Apply SpO2 Probe / ECG Leads"
+      "standby_text": "No telemetry is displayed. Apply the SpO2 probe, NIBP cuff, and ECG leads to assess post-operative vital signs.",
+      "power_on_label": "Power On Monitor & Apply SpO2 / NIBP / ECG Leads"
     },
     "wristband": {
-      "observation_title": "Bedside Observation",
+      "observation_title": "Bedside General Appearance",
       "allergy_band_text": "Red allergy alert band present on left wrist",
       "verify_label": "Scan Wristband & Confirm Two Identifiers (Name + DOB)",
       "verified_label": "Two identifiers confirmed (Name + DOB) — logged"
+    },
+    "bed_safety": {
+      "rails_down_warning": "Left bedside rail is LOWERED from PACU stretcher transfer (high fall risk — sedated opioid PCA patient).",
+      "raise_rails_label": "Raise & Lock All Bed Side Rails Up",
+      "rails_raised_label": "All 4 side rails raised & locked — fall precaution verified"
+    },
+    "surgical_site": {
+      "dressing_title": "MIDLINE LAPAROTOMY DRESSING, JP DRAIN & G-TUBE",
+      "dressing_finding": "Midline abdominal gauze has an expanding 6 cm bright-red sanguineous strikethrough spot. Surrounding skin is pale, cool, and diaphoretic.",
+      "jp_finding": "Jackson-Pratt (JP) bulb drain (RLQ): 135 mL bright-red sanguineous blood collected over the past hour (bulb nearly full / expanded, losing suction).",
+      "gtube_finding": "Gastrostomy tube (LUQ): Square hydrocolloid exit-site dressing clean and dry; tube patent with 40 mL greenish-bilious gastric return.",
+      "media_tabs": [
+        {
+          "id": "jp_dressing",
+          "label": "JP Drain & Dressing",
+          "image_url": "/clinical-media/jp_drain_dressing_ref.jpg",
+          "caption": "Bedside inspection: Midline surgical gauze with sanguineous strikethrough, LUQ gastrostomy wafer, and RLQ Jackson-Pratt bulb drain (>100 mL/hr sanguineous output indicates active postoperative hemorrhage)."
+        },
+        {
+          "id": "wound_complications",
+          "label": "Dehiscence & Evisceration",
+          "image_url": "/clinical-media/wound_dehiscence_evisceration_fig31_2.jpg",
+          "caption": "NCLEX Clinical Reference (Fig. 31-2): (A) Wound Dehiscence — fascial/skin separation; (B) Wound Evisceration — protruding bowel loops requiring sterile warm saline-moistened gauze + Low Fowler's (15–20°) with knees flexed."
+        }
+      ],
+      "actions": [
+        {
+          "id": "assess_jp_hemorrhage",
+          "label": "Measure JP output (135 mL/hr sanguineous), re-compress bulb for suction, reinforce midline gauze & flag active hemorrhage",
+          "event_code": "ASSESS_JP_HEMORRHAGE"
+        },
+        {
+          "id": "verify_gtube",
+          "label": "Verify Gastrostomy (G-tube) exit-site dressing intact & confirm tube patency / securement",
+          "event_code": "VERIFY_GTUBE"
+        },
+        {
+          "id": "remove_primary_dressing_trap",
+          "label": "Peel off blood-saturated primary surgical gauze to wipe the fresh laparotomy incision clean",
+          "event_code": "REMOVE_PRIMARY_DRESSING_TRAP"
+        }
+      ]
     },
     "admission_prerequisites": [
       {
@@ -141,6 +187,10 @@
       {
         "key": "wristband_verified",
         "label": "Wristband ID verified"
+      },
+      {
+        "key": "side_rails_raised",
+        "label": "Bed side rails raised"
       },
       {
         "key": "mar_reviewed",
@@ -157,13 +207,13 @@
     },
     "mar_actions": {
       "cefazolin": {
-        "label": "Administer Scheduled Cefazolin 1g IV",
+        "label": "Administer Scheduled Cefazolin 1 g IV",
         "given_label": "Cefazolin 1 g IV — documented as given",
         "hard_stop_label": "HARD STOP: Allergy alert active — Cefazolin held pending prescriber clarification"
       },
       "naloxone": {
         "label": "Prepare Naloxone 0.4 mg IV PRN",
-        "prepared_label": "Naloxone 0.4 mg prepared — syringe at IV pump"
+        "prepared_label": "Naloxone 0.4 mg prepared — syringe ready at IV pump"
       }
     },
     "naloxone": {
@@ -171,12 +221,13 @@
       "administered_label": "Naloxone 0.4 mg IV push documented",
       "indication": {
         "spo2_below": 90,
-        "rr_at_or_below": 10
+        "rr_at_or_below": 12
       },
       "renarcotization_sec": 45
     },
     "iv_pump": {
-      "channel_label": "Morphine Sulfate PCA • 1 mg/mL",
+      "channel_label": "CH 1: Morphine Sulfate PCA • 1 mg/mL",
+      "secondary_channel_label": "CH 2: 0.9% Normal Saline • PRN 500 mL Bolus (SBP < 95)",
       "display_rows": [
         {
           "label": "Basal rate",
@@ -212,11 +263,16 @@
         },
         {
           "id": "saline_flush",
-          "label": "Flush Line with Normal Saline Rapid Bolus",
+          "label": "Flush PCA Line with Normal Saline Rapid Push",
           "event_code": "SALINE_FLUSH_TRAP",
           "effect": "RESIDUAL_LINE_FLUSH"
         }
-      ]
+      ],
+      "crystalloid_bolus": {
+        "label": "Initiate PRN 0.9% Normal Saline 500 mL IV Bolus (Secondary Dedicated Port for SBP < 95 mmHg)",
+        "active_label": "0.9% Normal Saline 500 mL IV bolus infusing via dedicated secondary port",
+        "event_code": "INITIATE_CRYSTALLOID_BOLUS"
+      }
     },
     "bed_positions": [
       {
@@ -224,7 +280,7 @@
         "title": "Trendelenburg",
         "sub": "-15° head down",
         "spo2_delta": -4,
-        "rr_delta": 2,
+        "rr_delta": -1,
         "event_code": "TRENDELENBURG_TRAP"
       },
       {
@@ -238,9 +294,9 @@
       {
         "angle": 30,
         "title": "Semi-Fowler's",
-        "sub": "30°",
+        "sub": "30° (knees slightly flexed)",
         "spo2_delta": 3,
-        "rr_delta": -2,
+        "rr_delta": 1,
         "event_code": "SET_BED_FOWLERS"
       },
       {
@@ -248,7 +304,7 @@
         "title": "High Fowler's",
         "sub": "60°",
         "spo2_delta": 3,
-        "rr_delta": -2,
+        "rr_delta": 1,
         "event_code": "SET_BED_FOWLERS"
       }
     ],
@@ -269,39 +325,122 @@
         "id": "Non-Rebreather (15 L/min)",
         "title": "Non-Rebreather",
         "flow": "15 L/min",
-        "spo2_delta": 7
+        "spo2_delta": 8
       }
     ],
     "physiology": {
-      "o2_hr_delta": -12,
+      "o2_hr_delta": -8,
       "o2_bonus_when_bradypneic": 2,
       "spo2_ceiling": 99,
       "pca_paused": {
-        "spo2": 88,
-        "rr": 20,
-        "hr": 108,
-        "etco2": 48
+        "spo2": 89,
+        "rr": 16,
+        "hr": 116,
+        "etco2": 44,
+        "bp": "92/58"
       },
       "naloxone_reversed": {
-        "spo2": 92,
+        "spo2": 93,
         "rr": 16,
-        "hr": 98,
-        "etco2": 42,
-        "bp": "142/88"
+        "hr": 112,
+        "etco2": 41,
+        "bp": "94/60"
       },
       "acute_opioid_toxicity": {
         "spo2": 79,
         "rr": 6,
-        "hr": 122,
+        "hr": 128,
         "etco2": 72,
-        "bp": "102/64"
+        "bp": "84/50"
       },
       "residual_line_flush": {
         "spo2": 81,
         "rr": 7,
-        "hr": 120,
+        "hr": 126,
         "etco2": 68,
-        "bp": "108/66"
+        "bp": "86/52"
+      },
+      "crystalloid_supported_bp": "110/68",
+      "crystalloid_hr_delta": -14
+    },
+    "station_questions": {
+      "bedside_monitor": {
+        "question_id": "sq_monitor_cues",
+        "domain": "knowledge",
+        "ncsbn_category": "Physiological Adaptation",
+        "prompt": "Clinical Cue Check: The monitor shows HR 122 bpm, BP 92/58 mmHg, RR 10/min, and SpO2 88% in a pale, diaphoretic post-laparotomy patient on a Morphine PCA. Which concurrent complications explain this pattern?",
+        "options": [
+          {
+            "id": "A",
+            "text": "Normal post-anesthesia shivering with benign emergence hypertension."
+          },
+          {
+            "id": "B",
+            "text": "Opioid-induced respiratory depression (RR 10/min, SpO2 88%) alongside suspected postoperative hemorrhage / hypovolemia (tachycardia, hypotension, pallor, diaphoresis)."
+          },
+          {
+            "id": "C",
+            "text": "Fluid volume overload from intraoperative IV crystalloid administration."
+          },
+          {
+            "id": "D",
+            "text": "Malignant hyperthermia requiring immediate dantrolene IV push."
+          }
+        ],
+        "correct_option_id": "B",
+        "rationale": "RR < 12/min with SpO2 88% on continuous Morphine PCA indicates opioid-induced respiratory depression, while compensatory tachycardia (HR 122), hypotension (BP 92/58), pallor, and diaphoresis are classic manifestations of postoperative hemorrhage after an exploratory laparotomy."
+      },
+      "ehr_tablet": {
+        "question_id": "sq_ehr_cross_check",
+        "domain": "risk_recognition",
+        "ncsbn_category": "Pharmacological and Parenteral Therapies",
+        "prompt": "Chart Verification Check: Pre-op Hgb was 13.4 g/dL and PACU Hgb is now 9.6 g/dL; Cefazolin 1 g IV is due now; Allergies list Penicillin (Anaphylaxis). Which nursing decision is safest?",
+        "options": [
+          {
+            "id": "A",
+            "text": "Administer Cefazolin 1 g IV immediately to prevent surgical infection, then recheck Hgb in 24 hours."
+          },
+          {
+            "id": "B",
+            "text": "Hold Cefazolin due to cephalosporin cross-sensitivity risk with anaphylactic penicillin allergy, prepare PRN Naloxone, and correlate the 3.8 g/dL Hgb drop with bedside JP drain output."
+          },
+          {
+            "id": "C",
+            "text": "Administer half the Cefazolin dose slowly over 60 minutes without notifying the prescriber."
+          },
+          {
+            "id": "D",
+            "text": "Increase the Morphine PCA basal rate to blunt sympathetic tachycardia."
+          }
+        ],
+        "correct_option_id": "B",
+        "rationale": "First-generation cephalosporins (cefazolin) carry a cross-reactivity risk in patients with severe IgE-mediated penicillin anaphylaxis and must be held for prescriber clarification. Simultaneously, an acute Hgb drop from 13.4 to 9.6 g/dL confirms significant blood loss requiring immediate surgical drain correlation."
+      },
+      "surgical_site": {
+        "question_id": "sq_surgical_wound",
+        "domain": "prioritisation",
+        "ncsbn_category": "Reduction of Risk Potential",
+        "prompt": "NCLEX Complication Check (Fig. 31-2B): If this post-laparotomy patient coughs forcefully and loops of pink bowel protrude through the separated abdominal suture line (wound evisceration), what is your IMMEDIATE priority action?",
+        "options": [
+          {
+            "id": "A",
+            "text": "Use sterile gloved fingers to gently push the protruding bowel loops back into the peritoneal cavity."
+          },
+          {
+            "id": "B",
+            "text": "Place the patient in High Fowler's (90°) and wrap a dry elastic abdominal binder tightly over the wound."
+          },
+          {
+            "id": "C",
+            "text": "Place the patient in Low Fowler's (15–20°) with knees flexed, cover the protruding organs with sterile gauze moistened with warm sterile 0.9% Normal Saline, keep NPO, and notify the surgeon STAT."
+          },
+          {
+            "id": "D",
+            "text": "Leave the eviscerated bowel exposed to air and collect a wound swab for culture."
+          }
+        ],
+        "correct_option_id": "C",
+        "rationale": "Wound evisceration is a surgical emergency: Low Fowler's with knees bent relieves tension on the abdominal incision, sterile warm saline-soaked dressings keep extruded viscera moist and prevent tissue necrosis (never push organs back in or apply dry gauze), and the surgical team must be notified STAT for operative repair."
       }
     },
     "event_catalog": {
@@ -314,18 +453,48 @@
         "classification": "ASSESSMENT"
       },
       "POWER_ON_MONITOR": {
-        "label": "Powered on bedside monitor (SpO2 probe + ECG leads)",
+        "label": "Powered on bedside monitor (SpO2, NIBP, ECG)",
         "classification": "CORRECT",
-        "rationale": "Continuous SpO2 and ECG telemetry establishes the baseline needed to recognize post-operative deterioration."
+        "rationale": "Continuous telemetry establishes baseline oxygenation (SpO2 88%, RR 10) and hemodynamic cues of hemorrhage (HR 122, BP 92/58)."
       },
       "DOCUMENT_VITALS": {
-        "label": "Documented vital signs",
+        "label": "Documented abnormal post-op vital signs",
         "classification": "ASSESSMENT"
       },
       "VERIFY_PATIENT_ID": {
         "label": "Verified wristband with two identifiers",
         "classification": "CORRECT",
-        "rationale": "Two-identifier verification (name + DOB) is required before any intervention or medication."
+        "rationale": "Two-identifier verification (Name + DOB) is required before any medication or clinical intervention."
+      },
+      "RAISE_SIDE_RAILS": {
+        "label": "Raised and locked all bed side rails",
+        "classification": "CORRECT",
+        "rationale": "Sedated post-operative patients receiving opioid analgesia are at high risk for falls; raising all side rails is a mandatory safety check."
+      },
+      "ASSESS_JP_HEMORRHAGE": {
+        "label": "Measured JP drain (135 mL/hr sanguineous), re-compressed bulb, reinforced dressing & flagged hemorrhage",
+        "classification": "CORRECT",
+        "rationale": "Sanguineous JP drainage > 100 mL/hr paired with tachycardia, hypotension, pallor, and diaphoresis indicates active postoperative hemorrhage; reinforcing the primary dressing and restoring bulb suction while escalating to surgery is priority care."
+      },
+      "VERIFY_GTUBE": {
+        "label": "Verified gastrostomy (G-tube) dressing & patency",
+        "classification": "CORRECT",
+        "rationale": "Confirming gastrostomy tube securement, skin integrity, and gastric decompression return is standard post-exploratory laparotomy assessment."
+      },
+      "REMOVE_PRIMARY_DRESSING_TRAP": {
+        "label": "Peeled off blood-saturated primary surgical dressing",
+        "classification": "TRAP",
+        "severity": "MAJOR",
+        "rationale": "Never remove the surgeon's first post-operative dressing within the initial 24 hours during active bleeding — peeling it off disrupts nascent clots and introduces infection risk. Always reinforce over the primary dressing and notify the surgeon."
+      },
+      "INITIATE_CRYSTALLOID_BOLUS": {
+        "label": "Initiated PRN 0.9% Normal Saline 500 mL IV bolus via dedicated secondary port",
+        "classification": "CORRECT",
+        "rationale": "Isotonic crystalloid resuscitation per PRN protocol supports intravascular volume and blood pressure in early postoperative hemorrhagic hypovolemia."
+      },
+      "ANSWER_STATION_QUESTION": {
+        "label": "Answered bedside station NCLEX check",
+        "classification": "ASSESSMENT"
       },
       "REVIEW_EHR_TAB": {
         "label": "Reviewed EHR tab",
@@ -334,39 +503,39 @@
       "FLAG_ALLERGY": {
         "label": "Flagged penicillin anaphylaxis allergy",
         "classification": "CORRECT",
-        "rationale": "Cefazolin is a cephalosporin; a history of penicillin anaphylaxis requires prescriber clarification before administration."
+        "rationale": "Cefazolin is a cephalosporin; a history of penicillin anaphylaxis requires holding the dose and clarifying with the prescriber."
       },
       "CEFAZOLIN_HELD_ALLERGY": {
         "label": "Cefazolin held — prescriber clarification required",
         "classification": "CORRECT",
-        "rationale": "Holding the cephalosporin pending clarification prevents a potential cross-sensitivity anaphylactic reaction."
+        "rationale": "Holding the cephalosporin pending clarification prevents a cross-sensitivity anaphylactic reaction."
       },
       "ALLERGY_CROSS_SENSITIVITY_ERROR": {
         "label": "Administered Cefazolin 1 g IV without flagging penicillin anaphylaxis",
         "classification": "CRITICAL_ERROR",
         "severity": "CRITICAL",
-        "rationale": "Patients with penicillin anaphylaxis can cross-react with cephalosporins. The allergy must be flagged and the order clarified before administration."
+        "rationale": "Patients with penicillin anaphylaxis can cross-react with cephalosporins. The allergy must be flagged and clarified before administration."
       },
       "SET_BED_FOWLERS": {
-        "label": "Elevated head of bed (Fowler's)",
+        "label": "Elevated head of bed (Semi/High Fowler's)",
         "classification": "CORRECT",
-        "rationale": "Elevating the head of bed lowers the diaphragm and improves lung expansion and oxygenation."
+        "rationale": "Elevating the head of bed (Semi-Fowler's 30° with knees slightly flexed) improves diaphragmatic excursion while minimizing tension on the abdominal suture line."
       },
       "SET_BED_FLAT": {
         "label": "Set bed flat supine (0°)",
         "classification": "NEUTRAL",
-        "rationale": "Flat supine does not support ventilation in a hypoxic post-abdominal-surgery patient."
+        "rationale": "Flat supine impairs lung expansion in a hypoxic post-abdominal-surgery patient."
       },
       "TRENDELENBURG_TRAP": {
         "label": "Placed patient in Trendelenburg (-15°)",
         "classification": "TRAP",
         "severity": "MAJOR",
-        "rationale": "Head-down positioning pushes abdominal organs against the diaphragm, reducing lung expansion and worsening hypoxia."
+        "rationale": "Trendelenburg pushes abdominal viscera against the diaphragm, worsening respiratory distress and hypoxia."
       },
       "ADMINISTER_O2": {
         "label": "Initiated supplemental oxygen",
         "classification": "CORRECT",
-        "rationale": "Supplemental O2 per the PRN order treats hypoxemia — but can mask ongoing opioid hypoventilation if the opioid source is not addressed."
+        "rationale": "Supplemental O2 treats acute hypoxemia — while pausing the Morphine PCA addresses the underlying hypoventilation."
       },
       "STOP_O2": {
         "label": "Discontinued supplemental oxygen",
@@ -375,61 +544,66 @@
       "PAUSE_PCA": {
         "label": "Paused morphine PCA infusion",
         "classification": "CORRECT",
-        "rationale": "Stopping the opioid source is the priority intervention for opioid-induced respiratory depression."
+        "rationale": "Stopping the continuous opioid infusion is the priority intervention for opioid-induced respiratory depression (RR 10/min)."
       },
       "OPIOID_DEMAND_BOLUS_TRAP": {
         "label": "Administered 1 mg morphine PCA demand bolus",
         "classification": "CRITICAL_ERROR",
         "severity": "CRITICAL",
-        "rationale": "An additional opioid dose in a drowsy, hypoxic patient with shallow respirations worsens opioid toxicity (RR fell to 6/min, SpO2 79%). Pain must not be treated with more opioid while respiratory depression is present."
+        "rationale": "Giving additional opioid to a drowsy, hypoxic, hypotensive patient precipitates severe respiratory arrest and deepens hypotension."
       },
       "CONTINUE_BASAL_TRAP": {
         "label": "Continued basal morphine infusion (2 mg/hr)",
         "classification": "TRAP",
         "severity": "MAJOR",
-        "rationale": "Continuing the basal rate leaves the source of respiratory depression running."
+        "rationale": "Continuing basal morphine leaves the source of respiratory depression active."
       },
       "SALINE_FLUSH_TRAP": {
-        "label": "Rapid normal-saline flush of the PCA line",
+        "label": "Rapid normal-saline push through the Morphine PCA tubing",
         "classification": "TRAP",
         "severity": "MAJOR",
-        "rationale": "A rapid flush pushes the residual morphine in the tubing into the patient as an unintended bolus."
+        "rationale": "Flushing the PCA drug line boluses residual morphine still inside the tubing into the patient."
       },
       "PREPARE_NALOXONE": {
         "label": "Prepared naloxone 0.4 mg IV (PRN order)",
         "classification": "CORRECT",
-        "rationale": "Having the opioid antagonist ready supports rapid reversal if respiratory depression progresses."
+        "rationale": "Drawing up the opioid antagonist enables immediate reversal of respiratory depression."
       },
       "ADMINISTER_NALOXONE": {
         "label": "Administered naloxone 0.4 mg IV push",
         "classification": "CORRECT",
-        "rationale": "Naloxone reverses opioid-induced respiratory depression. Monitor closely: it is shorter-acting than morphine."
+        "rationale": "Naloxone reverses opioid-induced respiratory depression; continue monitoring because its half-life is shorter than morphine."
       },
       "NALOXONE_NOT_INDICATED": {
         "label": "Administered naloxone outside PRN parameters",
         "classification": "NEUTRAL",
-        "rationale": "The PRN order specifies RR < 10 or SpO2 < 90%. Unnecessary reversal can precipitate severe pain and withdrawal."
+        "rationale": "Administering naloxone after respirations and SpO2 have already normalized can cause acute pain crisis and catecholamine surge."
       },
       "BLIND_INTERVENTION_PENALTY": {
         "label": "Intervention performed before admission safety checks",
         "classification": "PENALTY",
         "severity": "MODERATE",
-        "rationale": "Power on the monitor, verify the wristband ID, and review the MAR and allergies before intervening."
+        "rationale": "Complete admission safety checks (power on monitor, verify ID wristband, raise bed side rails, review MAR & allergies) before intervening."
       },
       "OPIOID_MASKING_BRADYPNEA": {
-        "label": "Patient became bradypneic (opioid infusion continued)",
+        "label": "Patient became severely bradypneic (opioid infusion continued)",
         "classification": "PHYSIOLOGIC_EVENT",
-        "rationale": "With morphine still infusing, supplemental O2 masked hypoventilation until RR fell to 8/min."
+        "rationale": "Supplemental O2 masked hypoxemia while continuous morphine depressed RR to 8/min."
       },
       "UNTREATED_HYPOXIA_DETERIORATION": {
         "label": "Untreated hypoxia deteriorated (SpO2 84%)",
         "classification": "PHYSIOLOGIC_EVENT",
-        "rationale": "60 seconds without oxygen or head-of-bed elevation."
+        "rationale": "60 seconds elapsed without oxygen or head-of-bed elevation."
+      },
+      "UNRECOGNIZED_HEMORRHAGE_ESCALATION": {
+        "label": "Unaddressed surgical bleeding progressed to worsening hypovolemic shock (HR 136, BP 78/46)",
+        "classification": "PHYSIOLOGIC_EVENT",
+        "rationale": "90 seconds elapsed without assessing the 135 mL/hr sanguineous JP drain output or initiating hemodynamic support."
       },
       "RENARCOTIZATION": {
         "label": "Re-sedation after naloxone (PCA still infusing)",
         "classification": "PHYSIOLOGIC_EVENT",
-        "rationale": "Naloxone wears off before morphine; the infusion must be stopped."
+        "rationale": "Naloxone wore off while morphine continued infusing."
       },
       "CRITICAL_HYPOXIA_ONSET": {
         "label": "SpO2 fell below 80% (critical hypoxia)",
@@ -444,36 +618,36 @@
       {
         "question_id": "q1_sbar",
         "domain": "prioritisation",
-        "title": "Question 1 of 2 • SBAR Escalation",
+        "title": "Question 1 of 4 • SBAR Surgical Escalation",
         "ncsbn_category": "Management of Care (15-21%)",
-        "prompt": "You call the surgical resident about John Doe. Which SBAR report is most appropriate?",
+        "prompt": "You call the surgical resident regarding John Doe (4 hours post-exploratory laparotomy). Which SBAR report is most accurate and clinically complete?",
         "options": [
           {
             "id": "A",
-            "text": "S: John Doe, 62, is in pain after his surgery and can't get comfortable. B: He had an exploratory laparotomy today. A: He seems uncomfortable and his oxygen is a little low. R: Can you increase the morphine PCA basal rate so he can rest?"
+            "text": "S: John Doe, 62, is uncomfortable after his laparotomy. B: He has a G-tube and JP drain. A: His dressing has a little blood and his SpO2 was 88%. R: Please increase his Morphine PCA basal rate so he can sleep."
           },
           {
             "id": "B",
-            "text": "S: John Doe, 62, 4 h post-exploratory laparotomy, with suspected opioid-induced respiratory depression. B: Morphine PCA 2 mg/hr basal + 1 mg demand; severe penicillin allergy (anaphylaxis); cefazolin due. A: Arrived drowsy with SpO2 88%, shallow RR; PCA paused, HOB elevated, O2 applied; ABG pending. R: Please evaluate at the bedside now, review the analgesia plan, confirm naloxone parameters, and clarify the cefazolin order."
+            "text": "S: John Doe, 62, 4 h post-exploratory laparotomy, presenting with opioid respiratory depression AND suspected postoperative hemorrhage. B: Morphine PCA 2 mg/hr, Hgb dropped 13.4 → 9.6 g/dL, anaphylactic penicillin allergy (Cefazolin held). A: Pale, diaphoretic, HR 122, BP 92/58, RR 10, SpO2 88%, JP drain 135 mL/hr bright-red blood with gauze strikethrough; PCA paused, O2 & Semi-Fowler's applied, dressing reinforced, NS bolus started. R: Please evaluate at bedside STAT for active bleeding, review analgesia, and clarify antibiotic prophylaxis."
           },
           {
             "id": "C",
-            "text": "S: I'm calling with an update on John Doe. B: He came up from PACU this afternoon. A: His SpO2 is 88% and his RR is 26. R: No orders needed right now — I'll keep monitoring him and call back if anything changes."
+            "text": "S: Calling with a routine admission update on John Doe. B: Arrived from PACU with a JP drain. A: I removed his bloody surgical gauze to air out the incision; BP is 92/58 and HR 122. R: No new orders needed right now."
           },
           {
             "id": "D",
-            "text": "S: John Doe's cefazolin is due. B: He is on a morphine PCA. A: I gave the cefazolin and he is resting with his eyes closed. R: Please renew the PCA order for tonight."
+            "text": "S: John Doe's Cefazolin 1 g IV was due. B: He has a penicillin allergy. A: I administered the Cefazolin and left the Morphine PCA running at 2 mg/hr. R: Please order a repeat CBC tomorrow morning."
           }
         ],
         "correct_option_id": "B",
-        "rationale": "Option B follows SBAR structure, states the suspected problem, includes the relevant background (opioid PCA, penicillin anaphylaxis), reports the assessment and interventions already taken, and makes a specific, safe recommendation. A requests more opioid, C makes no recommendation despite abnormal findings, and D reports a medication error as routine."
+        "rationale": "Option B delivers a complete, structured SBAR covering both life-threatening post-laparotomy problems (opioid respiratory depression + active hemorrhage evidenced by tachycardia, hypotension, pallor, diaphoresis, Hgb 9.6, and 135 mL/hr sanguineous JP output), notes Cefazolin held for penicillin anaphylaxis, summarizes safe nursing interventions taken, and requests immediate bedside surgical evaluation."
       },
       {
         "question_id": "q2_abg",
         "domain": "knowledge",
-        "title": "Question 2 of 2 • ABG & Pharmacology Follow-Up",
+        "title": "Question 2 of 4 • ABG & Opioid Reversal",
         "ncsbn_category": "Pharmacological and Parenteral Therapies (13-19%)",
-        "prompt": "Fifteen minutes later an arterial blood gas is drawn: pH 7.28, PaCO2 55 mmHg, PaO2 62 mmHg, HCO3 24 mEq/L. The patient is difficult to arouse with RR 9/min. Which interpretation and nursing action are most appropriate?",
+        "prompt": "An arterial blood gas drawn during the episode shows: pH 7.28, PaCO2 55 mmHg, PaO2 62 mmHg, HCO3 24 mEq/L. The patient is difficult to arouse with RR 9/min. Which interpretation and nursing action are most appropriate?",
         "options": [
           {
             "id": "A",
@@ -481,84 +655,116 @@
           },
           {
             "id": "B",
-            "text": "Uncompensated respiratory acidosis — increase the morphine PCA basal rate, because pain-related splinting is causing hypoventilation."
+            "text": "Uncompensated respiratory acidosis — increase the morphine PCA basal rate because incisional pain is causing shallow breathing."
           },
           {
             "id": "C",
-            "text": "Uncompensated respiratory acidosis — administer naloxone 0.4 mg IV per the PRN order, keep the PCA paused, and remain with the patient to monitor for re-sedation."
+            "text": "Uncompensated respiratory acidosis — administer naloxone 0.4 mg IV per PRN order, keep the Morphine PCA paused, and monitor closely for renarcotization."
           },
           {
             "id": "D",
-            "text": "Compensated respiratory alkalosis — coach the patient to slow his breathing."
+            "text": "Compensated respiratory alkalosis — coach slow paper-bag breathing."
           }
         ],
         "correct_option_id": "C",
-        "rationale": "pH < 7.35 with PaCO2 > 45 mmHg and a normal HCO3 is uncompensated respiratory acidosis. With RR 9/min on a morphine PCA, this is opioid-induced hypoventilation: naloxone per the PRN order reverses it, the opioid source stays off, and the nurse monitors for re-sedation because naloxone is shorter-acting than morphine."
+        "rationale": "pH < 7.35 with PaCO2 > 45 mmHg and normal HCO3 (22–26 mEq/L) defines uncompensated respiratory acidosis from alveolar hypoventilation. Administering naloxone 0.4 mg IV while keeping the PCA paused reverses opioid depression; ongoing monitoring is mandatory because naloxone's half-life is shorter than morphine's."
+      },
+      {
+        "question_id": "q3_hemorrhage_jp",
+        "domain": "risk_recognition",
+        "title": "Question 3 of 4 • Postoperative Hemorrhage & JP Drain Cues",
+        "ncsbn_category": "Reduction of Risk Potential (9-15%)",
+        "prompt": "Which cluster of assessment findings in a patient 4 hours after an exploratory laparotomy most strongly indicates active internal postoperative hemorrhage requiring immediate surgical intervention?",
+        "options": [
+          {
+            "id": "A",
+            "text": "HR 76 bpm, BP 126/78 mmHg, warm dry pink skin, and 20 mL of serosanguineous JP drain fluid over 4 hours."
+          },
+          {
+            "id": "B",
+            "text": "Tachycardia (HR 122–136 bpm), hypotension (BP 92/58 → 78/46 mmHg), pallor, cool clammy diaphoresis, restlessness, and >100 mL/hr bright-red sanguineous JP drain output."
+          },
+          {
+            "id": "C",
+            "text": "Low-grade temperature of 37.3°C (99.1°F), mild incisional tenderness with movement, and 40 mL bilious gastrostomy return."
+          },
+          {
+            "id": "D",
+            "text": "Bradycardia (HR 52 bpm), BP 154/90 mmHg, flushed dry skin, and absent bowel sounds."
+          }
+        ],
+        "correct_option_id": "B",
+        "rationale": "Postoperative hemorrhage manifests with the classic hypovolemic shock triad: compensatory tachycardia, progressive hypotension, and sympathetic vasoconstriction producing pale (pallor), cool, sweaty (diaphoretic) skin — confirmed directly by frank sanguineous JP bulb output exceeding 100 mL/hr."
+      },
+      {
+        "question_id": "q4_dehiscence_evisceration",
+        "domain": "clinical_judgment",
+        "title": "Question 4 of 4 • Wound Dehiscence & Evisceration Emergency",
+        "ncsbn_category": "Physiological Adaptation (11-17%)",
+        "prompt": "If the patient suddenly feels 'something give way' at his laparotomy incision after coughing, followed by a gush of pink serosanguineous fluid and protrusion of bowel loops through the separated wound edges (evisceration), which sequence of actions must the nurse take?",
+        "options": [
+          {
+            "id": "A",
+            "text": "Place in Low Fowler's (15–20°) with knees flexed, cover protruding bowel with sterile dressings soaked in warm sterile 0.9% Normal Saline, maintain NPO, stay with the patient, and have a colleague notify the surgeon STAT."
+          },
+          {
+            "id": "B",
+            "text": "Lower the bed to Trendelenburg (-15°), apply dry sterile 4x4 gauze with firm manual pressure to re-insert the bowel, and administer PRN morphine."
+          },
+          {
+            "id": "C",
+            "text": "Assist the patient to ambulate to the treatment room so the surgical resident can resuture the fascia under local anesthesia."
+          },
+          {
+            "id": "D",
+            "text": "Irrigate the protruding bowel with povidone-iodine antiseptic solution and apply an occlusive transparent film dressing."
+          }
+        ],
+        "correct_option_id": "A",
+        "rationale": "In abdominal wound dehiscence/evisceration, Low Fowler's (15–20°) with knees flexed reduces abdominal wall tension; sterile warm 0.9% Normal Saline dressings prevent mucosal desiccation and necrosis (dry gauze adheres to bowel, povidone-iodine is cytotoxic, and protruding organs must NEVER be pushed back in); keep NPO for emergency return to the OR."
       }
     ]
-  },
-  "narrative_chapters": {
-    "chapter_1": {
-      "id": "CHAPTER_I",
-      "roman": "CHAPTER I",
-      "title": "PACU HANDOFF & ADMISSION SETUP",
-      "banner_text": "CHAPTER I: PACU HANDOFF & ADMISSION SETUP — Verify Patient Identity, Connect Bedside Pulse Oximeter & Inspect IV PCA Line",
-      "objective_hint": "Walk to the bedside (Click station or WASD) -> 1. Verify Wristband ID -> 2. Connect SpO2 Sensor & Power On Monitor -> 3. Review PACU Handoff Chart",
-      "connect_monitor_cta": "Connect SpO2 Sensor & Power On Monitor",
-      "monitor_standby_text": "TELEMETRY STANDBY — Connect Patient SpO2 Probe & ECG Leads to Initialize Live Waveforms"
-    },
-    "chapter_2": {
-      "id": "CHAPTER_II",
-      "roman": "CHAPTER II",
-      "title": "ACUTE HYPOXIA DETERIORATION",
-      "banner_text": "CHAPTER II: ACUTE HYPOXIA DETERIORATION — SpO2 88% • HR 114 bpm • RR 26/min (Opioid-Induced Respiratory Depression)",
-      "objective_hint": "Priority ABCs: 1. Elevate Bed to 30°/60° Fowler's -> 2. Apply Wall Oxygen -> 3. Hold / Pause Continuous IV Morphine PCA"
-    },
-    "chapter_3": {
-      "id": "CHAPTER_III",
-      "roman": "CHAPTER III",
-      "title": "STABILIZATION & SBAR ESCALATION",
-      "banner_text": "CHAPTER III: STABILIZATION & SBAR ESCALATION — Reassess Vitals, Complete Narcotic Reversal if Indicated & Submit SBAR Evaluation",
-      "objective_hint": "Verify SpO2 >= 95% and Morphine PCA paused (or administer Naloxone 0.4mg IV Push if bradypneic), then click [Evaluate Care]"
-    }
   },
   "clinical_branching": {
     "branch_a_optimal": {
       "id": "BRANCH_A_STABILIZED",
-      "label": "Branch A: Optimal Stabilization",
+      "label": "Branch A: Optimal Stabilization (Airway + Hemodynamic Support)",
       "vitals": {
         "spo2": 97,
         "rr": 16,
         "etco2": 40,
-        "hr": 94,
+        "hr": 96,
+        "bp": "110/68",
         "alarm_active": false,
         "patient_status": "STABILIZED"
       },
-      "banner_title": "PATIENT STABILIZED — Optimal Airway, Oxygenation & Opioid Control",
-      "banner_detail": "Head-of-bed >= 30°, supplemental O2 active, and Morphine PCA paused -> SpO2 97%, RR 16/min, EtCO2 40 mmHg."
+      "banner_title": "PATIENT STABILIZED — Oxygenation, Opioid Source & Hemorrhage Addressed",
+      "banner_detail": "HOB >= 30°, O2 active, Morphine PCA paused, JP hemorrhage flagged & crystalloid bolus running -> SpO2 97%, RR 16, BP 110/68."
     },
     "branch_b_opioid_trap": {
       "id": "BRANCH_B_OPIOID_CRASH",
-      "label": "Branch B: Opioid Masking Trap",
-      "trigger_delay_sec": 20,
-      "masked_spo2": 94,
+      "label": "Branch B: Opioid Masking Bradypnea Crash",
+      "trigger_delay_sec": 25,
+      "masked_spo2": 93,
       "vitals": {
-        "spo2": 85,
-        "rr": 8,
+        "spo2": 84,
+        "rr": 7,
         "etco2": 64,
-        "hr": 124,
+        "hr": 128,
+        "bp": "86/52",
         "alarm_active": true,
         "patient_status": "UNAROUSABLE_NARCAN_REQUIRED"
       },
       "banner_title": "ACUTE OPIOID BRADYPNEA CRASH — Unarousable (Narcan Required)",
-      "banner_detail": "Supplemental O2 masked hypoxia while Morphine PCA (2 mg/hr) continued for 20s -> RR 8/min, EtCO2 64 mmHg, SpO2 85%. Administer Naloxone 0.4mg IV Push & pause PCA!",
-      "naloxone_button_label": "Administer Naloxone 0.4mg IV Push",
-      "naloxone_administered_label": "✓ Naloxone 0.4mg IV Push Administered (Narcotic Reversed)",
+      "banner_detail": "Supplemental O2 masked hypoxia while Morphine PCA continued -> RR 7/min, EtCO2 64 mmHg, SpO2 84%. Administer Naloxone 0.4 mg IV Push & pause PCA!",
+      "naloxone_button_label": "Administer Naloxone 0.4 mg IV Push",
+      "naloxone_administered_label": "✓ Naloxone 0.4 mg IV Push Administered (Narcotic Reversed)",
       "naloxone_reversal_vitals": {
         "spo2": 96,
         "rr": 16,
         "etco2": 41,
-        "hr": 96,
+        "hr": 104,
+        "bp": "98/62",
         "alarm_active": false,
         "patient_status": "STABILIZED"
       }
@@ -568,26 +774,39 @@
       "label": "Branch C: Untreated Hypoxia Deterioration",
       "trigger_delay_sec": 60,
       "vitals": {
-        "spo2": 84,
-        "rr": 28,
-        "etco2": 58,
-        "hr": 128,
+        "spo2": 83,
+        "rr": 9,
+        "etco2": 60,
+        "hr": 130,
+        "bp": "88/54",
         "alarm_active": true,
         "patient_status": "CODE_BLUE_RAPID_RESPONSE_WARNING"
       },
-      "banner_title": "CODE BLUE / RAPID RESPONSE WARNING — Untreated Hypoxia Deterioration",
-      "banner_detail": "60s elapsed with O2 OFF and Bed at 0° -> SpO2 deteriorated from 88% to 84%. Elevate head of bed and initiate supplemental O2 immediately!"
+      "banner_title": "RAPID RESPONSE WARNING — Untreated Hypoxia & Hypoventilation",
+      "banner_detail": "60s elapsed without O2 or HOB elevation -> SpO2 fell to 83%, RR 9/min."
+    },
+    "branch_d_hemorrhagic_shock": {
+      "id": "BRANCH_D_HEMORRHAGIC_SHOCK",
+      "label": "Branch D: Unrecognized Post-Op Hemorrhage Escalation",
+      "trigger_delay_sec": 90,
+      "vitals_delta": {
+        "hr_override": 136,
+        "bp_override": "78/46",
+        "spo2_delta": -3
+      },
+      "banner_title": "HEMORRHAGIC SHOCK ESCALATION — Unaddressed Surgical Drain Bleeding",
+      "banner_detail": "90s elapsed without assessing the 135 mL/hr sanguineous JP drain -> HR 136 bpm, BP 78/46 mmHg, marked pallor & diaphoresis."
     }
   },
   "initial_vitals": {
     "spo2": 88,
-    "hr": 114,
-    "bp": "148/92",
-    "rr": 26,
-    "etco2": 52,
-    "temp_c": 37.1,
+    "hr": 122,
+    "bp": "92/58",
+    "rr": 10,
+    "etco2": 54,
+    "temp_c": 36.7,
     "alarm_active": true,
-    "patient_status": "CRITICAL_HYPOXIA_RISK"
+    "patient_status": "CRITICAL_HYPOXIA_HEMORRHAGE_RISK"
   },
   "monitor_config": {
     "physiology_easing_ms": 20,
@@ -595,7 +814,9 @@
       "spo2_low": 92,
       "spo2_critical": 85,
       "hr_high": 110,
-      "rr_high": 24
+      "rr_low": 12,
+      "rr_high": 24,
+      "sbp_low": 95
     },
     "cyanosis": {
       "onset_spo2": 92,
@@ -621,19 +842,19 @@
       }
     },
     "cue_text": {
-      "alarm_spo2_low": "SpO2 LOW",
+      "alarm_spo2_low": "SpO2 LOW / RR LOW",
       "alarm_clear": "NO ACTIVE ALARMS",
-      "cyanosis_present": "Subtle peri-oral / nail-bed cyanosis (SpO2 below 92%)",
-      "cyanosis_clear": "Skin pink and warm — no cyanosis",
-      "waveform_hypoxic": "Hypoxic pattern: sinus tachycardia, ST depression, low-amplitude pleth, shallow rapid respirations",
-      "waveform_normal": "Waveforms normalised: regular sinus rhythm, strong pleth, even respirations"
+      "cyanosis_present": "Pale, cool diaphoretic skin with peri-oral cyanosis (SpO2 < 92%)",
+      "cyanosis_clear": "Skin warm and pink — perfusion & oxygenation improving",
+      "waveform_hypoxic": "Sinus tachycardia (HR 122), low-amplitude pleth, bradypnea (RR 10/min), hypotension (92/58)",
+      "waveform_normal": "Waveforms stabilized: regular sinus rhythm, strong pleth, even respirations"
     }
   },
   "ehr_tabs": {
-    "notes": "14:00 — Patient transferred from PACU 4 hours ago following abdominal exploratory surgery. Drowsy, easily distracted. Receiving continuous IV Morphine PCA (2 mg/hr basal rate + 1 mg demand bolus every 15 min). Respirations shallow and rapid.",
-    "mar": "1. Morphine Sulfate 2 mg/hr IV PCA continuous + 1 mg bolus Q15m PRN (ACTIVE)\n2. Supplemental Oxygen via Nasal Cannula (2-6 L/min) or Mask PRN for SpO2 < 92%\n3. Naloxone (Narcan) 0.4 mg IV push PRN for opioid-induced respiratory depression / RR < 10 or SpO2 < 90%\n4. Cefazolin 1 g IV Q8H — scheduled dose DUE NOW",
-    "labs": "PACU Labs (10:30): Hgb 11.8 g/dL • Hct 35% • WBC 10.2 x10^3/µL • Plt 228 x10^3/µL\nNa 138 mEq/L • K 4.1 mEq/L • Glucose 142 mg/dL • BUN 14 mg/dL • Creatinine 0.9 mg/dL\nArterial Blood Gas: ORDERED — Pending Draw",
-    "allergies": "Penicillin (Severe — Anaphylaxis)"
+    "notes": "14:00 PACU Handoff — 62M 4 hours post-abdominal exploratory laparotomy. Left upper quadrant gastrostomy (G-tube) clamped; right lower quadrant Jackson-Pratt (JP) bulb drain placed intraoperatively (EBL 450 mL). Arrived drowsy with pale skin (pallor) and cool, clammy sweat (diaphoresis). Continuous IV Morphine PCA running at 2 mg/hr basal + 1 mg demand Q15m.",
+    "mar": "1. Morphine Sulfate 2 mg/hr IV PCA continuous + 1 mg bolus Q15m PRN (ACTIVE — hold for RR < 12 or SpO2 < 92%)\n2. Supplemental Oxygen via Nasal Cannula (2–6 L/min) or Mask (8–15 L/min) PRN for SpO2 < 92%\n3. Naloxone (Narcan) 0.4 mg IV push PRN for opioid-induced respiratory depression (RR <= 12 or SpO2 < 90%)\n4. 0.9% Normal Saline 500 mL IV bolus PRN for post-op hypotension (SBP < 95 mmHg) or suspected bleeding\n5. Cefazolin 1 g IV Q8H — scheduled post-op prophylaxis dose DUE NOW",
+    "labs": "Pre-Op Baseline (07:30): Hgb 13.4 g/dL • Hct 40% • Plt 245 x10^3/µL\nPACU Stat Labs (13:40): Hgb 9.6 g/dL (↓ LOW) • Hct 29% (↓ LOW) • WBC 11.4 x10^3/µL • Plt 198 x10^3/µL\nLactate: 2.8 mmol/L (↑) • Na 138 • K 4.1 • Cr 0.9 mg/dL\nType & Crossmatch: 2 units PRBCs ON HOLD in Blood Bank • ABG: Pending",
+    "allergies": "Penicillin — SEVERE (History of Anaphylaxis & Angioedema)"
   },
   "interactive_objects": [
     {
@@ -645,40 +866,35 @@
     },
     {
       "id": "iv_pump",
-      "label": "IV PCA Infusion Pump (Pause / Continue Morphine PCA)",
+      "label": "IV Infusion Pump (Morphine PCA & PRN 0.9% NS Bolus)",
       "surface": "2D_UI_OVERLAY",
       "diagnostic_domain": "clinical_judgment",
-      "ncjmm_phase": "GENERATE_SOLUTIONS",
-      "state_mutation": {
-        "patient_status": "STABILIZED"
-      }
+      "ncjmm_phase": "GENERATE_SOLUTIONS"
     },
     {
       "id": "hospital_bed",
-      "label": "Bed Position Controls (0° Flat / 30° Semi-Fowler's / 60° High Fowler's)",
+      "label": "Bed Side Rails & Head-of-Bed Articulation",
       "surface": "3D_ROOM_CONTROL",
       "diagnostic_domain": "prioritisation",
-      "ncjmm_phase": "TAKE_ACTION",
-      "state_mutation": {
-        "spo2_delta": 3,
-        "rr_delta": -2
-      }
+      "ncjmm_phase": "TAKE_ACTION"
+    },
+    {
+      "id": "surgical_site",
+      "label": "Surgical Dressing, JP Drain & Gastrostomy Tube",
+      "surface": "3D_AND_MEDIA_INSPECTOR",
+      "diagnostic_domain": "risk_recognition",
+      "ncjmm_phase": "RECOGNIZE_CUES"
     },
     {
       "id": "wall_oxygen",
-      "label": "Wall Oxygen Delivery Unit (Nasal Cannula / Simple Mask / Non-Rebreather)",
+      "label": "Wall Oxygen Delivery Unit",
       "surface": "2D_UI_OVERLAY",
       "diagnostic_domain": "prioritisation",
-      "ncjmm_phase": "TAKE_ACTION",
-      "state_mutation": {
-        "spo2_delta": 5,
-        "hr_delta": -12,
-        "alarm_active": false
-      }
+      "ncjmm_phase": "TAKE_ACTION"
     },
     {
       "id": "wristband",
-      "label": "Patient ID Wristband",
+      "label": "Patient ID Wristband & Skin Appearance",
       "surface": "MODAL",
       "diagnostic_domain": "risk_recognition",
       "ncjmm_phase": "TAKE_ACTION"
@@ -689,70 +905,6 @@
       "surface": "2D_UI_OVERLAY",
       "diagnostic_domain": "knowledge",
       "ncjmm_phase": "RECOGNIZE_CUES"
-    }
-  ],
-  "deterministic_asset_bank": [
-    {
-      "asset_id": "vis_monitor_hypoxia_88",
-      "type": "2D_UI_STATE",
-      "description": "Initial abnormal vitals screen (SpO2 88%, HR 114, RR 26)"
-    },
-    {
-      "asset_id": "vis_abg_lab_panel_01",
-      "type": "2D_CHART_GRAPHIC",
-      "description": "Arterial Blood Gas panel showing Respiratory Acidosis (pH 7.28, PaCO2 55, PaO2 62)"
-    },
-    {
-      "asset_id": "vis_o2_devices_grid",
-      "type": "3D_RENDER_GRID",
-      "description": "Visual comparison of Nasal Cannula, Simple Mask, and Non-Rebreather"
-    },
-    {
-      "asset_id": "vis_spirometer_demo",
-      "type": "SHORT_LOOP_5S",
-      "description": "Post-op incentive spirometry patient education loop"
-    }
-  ],
-  "alternative_scenario_presets_for_np_review": [
-    {
-      "scenario_no": 3,
-      "preset_id": "nclex_preset_transfusion_03",
-      "title": "Acute Hemolytic Blood Transfusion Reaction",
-      "ncsbn_category": "Pharmacological and Parenteral Therapies (13-19%)",
-      "vitals_override": {
-        "spo2": 91,
-        "hr": 122,
-        "bp": "94/58",
-        "temp_c": 38.9
-      },
-      "key_intervention": "STOP_TRANSFUSION_MAINTAIN_NS_LINE"
-    },
-    {
-      "scenario_no": 4,
-      "preset_id": "nclex_preset_hypoglycemia_04",
-      "title": "Acute Symptomatic Hypoglycemia (BG 42 mg/dL)",
-      "ncsbn_category": "Physiological Adaptation (11-17%)",
-      "vitals_override": {
-        "spo2": 96,
-        "hr": 118,
-        "bp": "132/84",
-        "bg_mg_dl": 42
-      },
-      "key_intervention": "ADMINISTER_D50W_IV_OR_15G_CARB"
-    },
-    {
-      "scenario_no": 8,
-      "preset_id": "nclex_preset_sepsis_08",
-      "title": "Post-Op Infection Deterioration / Early Sepsis",
-      "ncsbn_category": "Safety & Infection Control (10-16%) + Physiological Adaptation (11-17%)",
-      "vitals_override": {
-        "spo2": 90,
-        "hr": 126,
-        "bp": "86/50",
-        "temp_c": 39.3,
-        "lactate": 4.2
-      },
-      "key_intervention": "DRAW_CULTURES_START_30ML_KG_CRYSTALLOID_BOLUS"
     }
   ]
 }

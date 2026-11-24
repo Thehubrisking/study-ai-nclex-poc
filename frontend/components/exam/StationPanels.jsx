@@ -1,7 +1,19 @@
 'use client';
 
-import React from 'react';
-import { Power, UserCheck, Flag, Pill, Syringe, AlertOctagon } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Power,
+  UserCheck,
+  Flag,
+  Pill,
+  Syringe,
+  AlertOctagon,
+  ShieldAlert,
+  ShieldCheck,
+  Droplets,
+  HelpCircle,
+  CheckCircle2,
+} from 'lucide-react';
 import VitalsMonitorModal from '../VitalsMonitorModal';
 
 /**
@@ -28,14 +40,14 @@ function OptionButton({ tk, selected = false, disabled = false, onClick, childre
       className={selected ? '' : tk.sub}
       style={{
         width: '100%',
-        padding: '12px 15px',
+        padding: '11px 14px',
         borderRadius: '14px',
         textAlign: align,
         cursor: disabled ? 'not-allowed' : 'pointer',
         color: disabled ? tk.muted : tk.text,
         background: selected ? tk.selectedBg : undefined,
         border: selected ? tk.selectedBorder : undefined,
-        fontSize: '13px',
+        fontSize: '12.5px',
         fontWeight: selected ? 700 : 500,
         lineHeight: 1.45,
         opacity: disabled ? 0.65 : 1,
@@ -62,8 +74,82 @@ function Note({ tk, children, icon: Icon }) {
         color: tk.text,
       }}
     >
-      {Icon && <Icon size={14} color={tk.section} />}
+      {Icon && <Icon size={14} color={tk.section} style={{ flexShrink: 0 }} />}
       <span>{children}</span>
+    </div>
+  );
+}
+
+/**
+ * In-Station NCLEX Clinical Check — lets the candidate connect observed station cues
+ * to NCLEX concepts without revealing correctness until the post-exam Gap Chart.
+ */
+function StationMicroQuestion({ tk, darkMode, question, selectedOptionId, onSelect }) {
+  if (!question) return null;
+  return (
+    <div
+      style={{
+        marginTop: '6px',
+        padding: '13px 14px',
+        borderRadius: '14px',
+        background: darkMode ? 'rgba(10, 19, 16, 0.85)' : '#f8faf5',
+        border: `1px solid ${tk.border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '9px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '10.5px',
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            color: tk.section,
+            textTransform: 'uppercase',
+          }}
+        >
+          <HelpCircle size={13} /> NCLEX Station Check · {question.ncsbn_category}
+        </span>
+        {selectedOptionId && (
+          <span
+            className="font-mono-clinical"
+            style={{
+              fontSize: '10.5px',
+              color: '#bfe8d6',
+              background: '#1e3a2f',
+              padding: '2px 8px',
+              borderRadius: '999px',
+            }}
+          >
+            Saved ({selectedOptionId})
+          </span>
+        )}
+      </div>
+
+      <div style={{ fontSize: '12.5px', fontWeight: 600, lineHeight: 1.5, color: tk.text }}>
+        {question.prompt}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {question.options.map((opt) => {
+          const isSel = selectedOptionId === opt.id;
+          return (
+            <OptionButton
+              key={opt.id}
+              tk={tk}
+              selected={isSel}
+              onClick={() => onSelect?.(question.question_id, opt.id)}
+            >
+              <strong style={{ color: tk.section, marginRight: '6px' }}>{opt.id}.</strong>
+              {opt.text}
+            </OptionButton>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -72,6 +158,12 @@ export default function StationPanelBody(props) {
   const { stationId, scenario, darkMode } = props;
   const tk = useTokens(darkMode);
   const ex = scenario.exam_config;
+  const [surgicalMediaTab, setSurgicalMediaTab] = useState('jp_dressing');
+
+  const stationQuestion = ex.station_questions?.[stationId] || null;
+  const selectedStationAnswer = stationQuestion
+    ? props.stationAnswers?.[stationQuestion.question_id] || null
+    : null;
 
   /* ---------- 1. BEDSIDE MONITOR ---------- */
   if (stationId === 'bedside_monitor') {
@@ -115,14 +207,23 @@ export default function StationPanelBody(props) {
       );
     }
     return (
-      <VitalsMonitorModal
-        patientName={scenario.patient.name}
-        vitals={props.vitals}
-        checkedVitals={props.vitalsDocumented}
-        darkMode={darkMode}
-        examMode
-        onLogInspection={props.onDocumentVitals}
-      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <VitalsMonitorModal
+          patientName={scenario.patient.name}
+          vitals={props.vitals}
+          checkedVitals={props.vitalsDocumented}
+          darkMode={darkMode}
+          examMode
+          onLogInspection={props.onDocumentVitals}
+        />
+        <StationMicroQuestion
+          tk={tk}
+          darkMode={darkMode}
+          question={stationQuestion}
+          selectedOptionId={selectedStationAnswer}
+          onSelect={props.onAnswerStationQuestion}
+        />
+      </div>
     );
   }
 
@@ -207,14 +308,13 @@ export default function StationPanelBody(props) {
     );
   }
 
-  /* ---------- 3. PATIENT CHART / EHR WORKSTATION (Matches Figma 36:84) ---------- */
+  /* ---------- 3. PATIENT CHART / EHR WORKSTATION ---------- */
   if (stationId === 'ehr_tablet') {
     const tab = props.activeEhrTab;
     const m = ex.mar_actions;
     const p = scenario.patient;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* Figma 36:87..36:92 Patient Chart Header Badges */}
         <div
           style={{
             display: 'flex',
@@ -259,7 +359,7 @@ export default function StationPanelBody(props) {
                 fontWeight: 800,
               }}
             >
-              {p.age} {p.gender?.[0]} · PACU
+              {p.age} {p.gender?.[0]} · Post-Laparotomy
             </span>
           </div>
           <span className="font-mono-clinical" style={{ fontSize: '11px', color: tk.muted }}>
@@ -267,7 +367,6 @@ export default function StationPanelBody(props) {
           </span>
         </div>
 
-        {/* Figma 36:93 Segmented Pill Tabs */}
         <div
           style={{
             display: 'flex',
@@ -397,14 +496,65 @@ export default function StationPanelBody(props) {
               </span>
             </OptionButton>
           ))}
+
+        <StationMicroQuestion
+          tk={tk}
+          darkMode={darkMode}
+          question={stationQuestion}
+          selectedOptionId={selectedStationAnswer}
+          onSelect={props.onAnswerStationQuestion}
+        />
       </div>
     );
   }
 
-  /* ---------- 4. BED FRAME CONTROLS ---------- */
+  /* ---------- 4. BED & SIDE RAILS ---------- */
   if (stationId === 'hospital_bed') {
+    const bs = ex.bed_safety;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {bs && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div
+              style={{
+                fontSize: '11.5px',
+                fontWeight: 800,
+                color: tk.section,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+              }}
+            >
+              BED SAFETY · SIDE RAILS
+            </div>
+            {props.sideRailsUp ? (
+              <Note tk={tk} icon={ShieldCheck}>
+                {bs.rails_raised_label}
+              </Note>
+            ) : (
+              <>
+                <div
+                  className={tk.sub}
+                  style={{
+                    padding: '10px 13px',
+                    borderRadius: '12px',
+                    fontSize: '12.5px',
+                    lineHeight: 1.5,
+                    color: '#f2a493',
+                    borderLeft: '3px solid #ee8572',
+                  }}
+                >
+                  {bs.rails_down_warning}
+                </div>
+                <OptionButton tk={tk} selected onClick={props.onRaiseSideRails}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShieldAlert size={15} color="#6fd1a9" /> {bs.raise_rails_label}
+                  </span>
+                </OptionButton>
+              </>
+            )}
+          </div>
+        )}
+
         <div
           style={{
             fontSize: '11.5px',
@@ -433,7 +583,158 @@ export default function StationPanelBody(props) {
     );
   }
 
-  /* ---------- 5. WALL GAS OUTLET ---------- */
+  /* ---------- 5. SURGICAL DRESSING, JP DRAIN & G-TUBE ---------- */
+  if (stationId === 'surgical_site') {
+    const ss = ex.surgical_site;
+    if (!ss) return null;
+    const mediaTabs = ss.media_tabs || [];
+    const activeMedia = mediaTabs.find((m) => m.id === surgicalMediaTab) || mediaTabs[0];
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Clinical Visual / Media Switcher (JP Drain & Dressing vs. Fig 31-2 Dehiscence/Evisceration) */}
+        {mediaTabs.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: '4px',
+                padding: '3px',
+                borderRadius: '999px',
+                background: darkMode ? '#0a1310' : '#f1f3ee',
+                border: darkMode ? '1px solid #1d2e27' : '1px solid #e7eae3',
+              }}
+            >
+              {mediaTabs.map((mt) => {
+                const active = activeMedia?.id === mt.id;
+                return (
+                  <button
+                    key={mt.id}
+                    type="button"
+                    onClick={() => setSurgicalMediaTab(mt.id)}
+                    style={{
+                      flex: 1,
+                      padding: '6px 10px',
+                      borderRadius: '999px',
+                      background: active ? (darkMode ? '#1e3a2f' : '#1e4a38') : 'transparent',
+                      color: active ? '#ffffff' : tk.muted,
+                      border: 'none',
+                      fontSize: '11.5px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {mt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {activeMedia && (
+              <div
+                style={{
+                  borderRadius: '14px',
+                  overflow: 'hidden',
+                  border: `1px solid ${tk.border}`,
+                  background: '#0a1310',
+                }}
+              >
+                <img
+                  src={activeMedia.image_url}
+                  alt={activeMedia.label}
+                  style={{
+                    width: '100%',
+                    maxHeight: '195px',
+                    objectFit: 'contain',
+                    display: 'block',
+                    background: '#f8fafc',
+                  }}
+                />
+                <div
+                  style={{
+                    padding: '9px 12px',
+                    fontSize: '11.5px',
+                    lineHeight: 1.45,
+                    color: '#afc6bc',
+                  }}
+                >
+                  {activeMedia.caption}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Bedside Surgical Inspection Readout */}
+        <div
+          className={tk.sub}
+          style={{
+            padding: '12px 14px',
+            borderRadius: '14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '7px',
+            fontSize: '12.5px',
+            lineHeight: 1.5,
+          }}
+        >
+          <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.06em', color: tk.section }}>
+            {ss.dressing_title}
+          </div>
+          <div>
+            <strong style={{ color: '#f2a493' }}>Incision Gauze: </strong>
+            {ss.dressing_finding}
+          </div>
+          <div>
+            <strong style={{ color: '#e8b04b' }}>JP Bulb Drain (RLQ): </strong>
+            {ss.jp_finding}
+          </div>
+          <div>
+            <strong style={{ color: '#bfe8d6' }}>G-Tube (LUQ): </strong>
+            {ss.gtube_finding}
+          </div>
+        </div>
+
+        {/* Nursing Actions at Surgical Site */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+          {ss.actions.map((act) => {
+            const done =
+              (act.event_code === 'ASSESS_JP_HEMORRHAGE' && props.jpAssessed) ||
+              (act.event_code === 'VERIFY_GTUBE' && props.gtubeVerified) ||
+              (act.event_code === 'REMOVE_PRIMARY_DRESSING_TRAP' && props.primaryDressingRemoved);
+            return (
+              <OptionButton
+                key={act.id}
+                tk={tk}
+                selected={done}
+                disabled={done}
+                onClick={() => props.onSurgicalAction?.(act)}
+              >
+                <span style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  {done ? (
+                    <CheckCircle2 size={14} color="#6fd1a9" style={{ marginTop: '2px', flexShrink: 0 }} />
+                  ) : (
+                    <Droplets size={14} color={tk.section} style={{ marginTop: '2px', flexShrink: 0 }} />
+                  )}
+                  <span>{act.label}</span>
+                </span>
+              </OptionButton>
+            );
+          })}
+        </div>
+
+        <StationMicroQuestion
+          tk={tk}
+          darkMode={darkMode}
+          question={stationQuestion}
+          selectedOptionId={selectedStationAnswer}
+          onSelect={props.onAnswerStationQuestion}
+        />
+      </div>
+    );
+  }
+
+  /* ---------- 6. WALL GAS OUTLET ---------- */
   if (stationId === 'wall_oxygen') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -471,7 +772,7 @@ export default function StationPanelBody(props) {
     );
   }
 
-  /* ---------- 6. IV INFUSION PUMP ---------- */
+  /* ---------- 7. IV INFUSION PUMP ---------- */
   if (stationId === 'iv_pump') {
     const pump = ex.iv_pump;
     return (
@@ -510,6 +811,34 @@ export default function StationPanelBody(props) {
             </OptionButton>
           ))}
         </div>
+
+        {/* Dedicated Secondary Crystalloid Line for Post-Op Hypotension / Hemorrhage */}
+        {pump.crystalloid_bolus && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                letterSpacing: '0.05em',
+                color: tk.section,
+              }}
+            >
+              {pump.secondary_channel_label || 'SECONDARY LINE · HEMODYNAMIC SUPPORT'}
+            </div>
+            {props.crystalloidBolus ? (
+              <Note tk={tk} icon={Droplets}>
+                {pump.crystalloid_bolus.active_label}
+              </Note>
+            ) : (
+              <OptionButton tk={tk} onClick={props.onCrystalloidBolus}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Droplets size={14} color="#6fd1a9" /> {pump.crystalloid_bolus.label}
+                </span>
+              </OptionButton>
+            )}
+          </div>
+        )}
+
         {props.naloxonePrepared && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <div
