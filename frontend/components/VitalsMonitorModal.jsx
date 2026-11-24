@@ -182,46 +182,39 @@ export default function VitalsMonitorModal({
         )}
       </div>
 
-      {/* Primary Action Pill Button */}
+      {/* Primary Action Pill Button — StudyAI Mint CTA */}
       <button
         onClick={onLogInspection}
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '11px 15px',
+          padding: '12px 16px',
           borderRadius: '14px',
-          background: checkedVitals
-            ? examMode
-              ? 'linear-gradient(135deg, #475569, #334155)'
-              : 'linear-gradient(135deg, #10b981, #059669)'
-            : 'linear-gradient(135deg, #0066ff, #2563eb)',
-          color: '#ffffff',
-          border: '1px solid rgba(255,255,255,0.35)',
-          fontWeight: 700,
-          fontSize: '12px',
+          background: checkedVitals ? '#1e3a2f' : '#6fd1a9',
+          color: checkedVitals ? '#bfe8d6' : '#0a1310',
+          border: checkedVitals ? '1px solid #2a4136' : 'none',
+          fontWeight: 800,
+          fontSize: '13px',
           cursor: 'pointer',
-          boxShadow: checkedVitals
-            ? 'inset 0 1px 0 rgba(255,255,255,0.4), 0 6px 18px rgba(16, 185, 129, 0.32)'
-            : 'inset 0 1px 0 rgba(255,255,255,0.4), 0 6px 18px rgba(0, 102, 255, 0.35)',
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <CheckCircle2 size={15} />
           {examMode
             ? checkedVitals
-              ? 'Vital Signs Documented — Click to Re-document'
-              : 'Document Vital Signs in Flowsheet'
+              ? 'Vital signs documented — click to re-document'
+              : 'Document vital signs in flowsheet'
             : checkedVitals
-              ? 'Vitals Cues Recognized & Logged'
-              : 'Log Vital Sign Inspection (Recognize Cues)'}
+              ? 'Vitals cues recognized & logged'
+              : 'Log vital sign inspection'}
         </span>
         <span
           style={{
             width: '22px',
             height: '22px',
             borderRadius: '50%',
-            background: 'rgba(255,255,255,0.22)',
+            background: checkedVitals ? 'rgba(191,232,214,0.16)' : 'rgba(10,19,16,0.12)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',

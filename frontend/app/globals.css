@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* StudyAI Official Brand Tokens (Figma 35:895, 36:5, 36:156, 36:603) */
+  --sa-forest: #1e4a38;
+  --sa-forest-hover: #16382a;
+  --sa-forest-deep: #0a1310;
+  --sa-forest-panel: #0f1d17;
+  --sa-forest-card: #11211a;
+  --sa-forest-border: #2a4136;
+  --sa-forest-divider: #1d2e27;
+  --sa-mint: #6fd1a9;
+  --sa-mint-soft: #bfe8d6;
+  --sa-lime: #cde8a2;
+  --sa-lime-soft: #dff0c0;
+  --sa-lime-tint: #f3fae6;
+  --sa-ink: #101713;
+  --sa-body: #475045;
+  --sa-muted: #6b746a;
+  --sa-stone-bg: #f8faf5;
+  --sa-stone-pill: #f1f3ee;
+  --sa-stone-border: #e7eae3;
+  --sa-strong: #2f7a4d;
+  --sa-developing: #9c6b00;
+  --sa-amber: #e8b04b;
+  --sa-focus: #c8372e;
+  --sa-coral: #ee8572;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -12,25 +39,31 @@ html,
 body {
   width: 100%;
   height: 100%;
-  height: 100dvh; /* mobile: excludes the collapsing browser toolbar */
+  height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans), "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
   user-select: none;
+  color: #101713;
+}
+
+.font-mono-clinical {
+  font-family: var(--font-mono), "Spline Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Touch: no 300ms double-tap-zoom delay on controls; the 3D canvas owns all gestures */
 button {
   touch-action: manipulation;
+  font-family: inherit;
 }
 canvas {
   touch-action: none;
 }
 
-/* Horizontally scrollable rails (walk bar, vitals) without a visible scrollbar */
+/* Horizontally scrollable rails without a visible scrollbar */
 .no-scrollbar {
   scrollbar-width: none;
 }
@@ -38,7 +71,21 @@ canvas {
   display: none;
 }
 
-/* ---------- Exam modals on phones: full-width bottom sheets ---------- */
+/* ---------- Full-screen StudyAI App Shell responsiveness ---------- */
+@media (max-width: 960px) {
+  .studyai-sidebar {
+    display: none !important;
+  }
+  .studyai-mobile-brand {
+    display: flex !important;
+  }
+  .studyai-intro-grid,
+  .studyai-exam-grid,
+  .studyai-gap-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .exam-overlay {
     padding: 0 !important;
@@ -50,17 +97,8 @@ canvas {
     border-radius: 22px 22px 0 0 !important;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .exam-card > div {
-    padding-left: 16px !important;
-    padding-right: 16px !important;
-  }
-  .exam-card h1,
-  .exam-card h2 {
-    font-size: 19px !important;
-    line-height: 1.25;
-  }
   .exam-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
   .exam-grid-2 {
     grid-template-columns: minmax(0, 1fr) !important;
@@ -71,20 +109,20 @@ canvas {
   }
   .exam-actions > button {
     justify-content: center;
-    min-height: 46px;
+    min-height: 48px;
   }
 }
 
-/* Fingers need bigger targets than mouse pointers */
 @media (pointer: coarse) {
-  .exam-card button {
+  .exam-card button,
+  .studyai-shell button {
     min-height: 42px;
   }
 }
 
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -92,77 +130,49 @@ canvas {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.45);
+  background: rgba(107, 116, 106, 0.35);
   border-radius: 999px;
 }
 
-/* ---------- LIQUID GLASS SURFACE SYSTEM (LIGHT & DARK MODE) ---------- */
+/* ---------- STUDYAI CLINICAL FOREST & BOTANICAL SURFACES ---------- */
 .liquid-glass-light {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(255, 255, 255, 0.48) 50%,
-    rgba(240, 247, 255, 0.64) 100%
-  );
-  backdrop-filter: blur(28px) saturate(190%) brightness(1.04);
-  -webkit-backdrop-filter: blur(28px) saturate(190%) brightness(1.04);
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid #e7eae3;
   box-shadow:
-    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.35),
-    0 20px 48px -12px rgba(15, 23, 42, 0.16),
-    0 4px 14px rgba(15, 23, 42, 0.06);
+    0 20px 48px -14px rgba(16, 23, 19, 0.14),
+    0 4px 14px rgba(16, 23, 19, 0.05);
 }
 
 .liquid-glass-dark {
-  background: linear-gradient(
-    135deg,
-    rgba(19, 28, 46, 0.72) 0%,
-    rgba(11, 17, 30, 0.56) 52%,
-    rgba(23, 37, 64, 0.66) 100%
-  );
-  backdrop-filter: blur(30px) saturate(190%);
-  -webkit-backdrop-filter: blur(30px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 29, 23, 0.93);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  border: 1px solid #2a4136;
   box-shadow:
-    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.26),
-    inset 0 -1px 1px 0 rgba(56, 189, 248, 0.12),
-    0 24px 56px -12px rgba(2, 6, 23, 0.72),
+    0 24px 56px -12px rgba(5, 11, 9, 0.72),
     0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .liquid-subcard-light {
-  background: linear-gradient(
-    145deg,
-    rgba(255, 255, 255, 0.78) 0%,
-    rgba(248, 250, 252, 0.58) 100%
-  );
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
-    0 6px 18px rgba(15, 23, 42, 0.05);
+  background: #f8faf5;
+  border: 1px solid #e7eae3;
 }
 
 .liquid-subcard-dark {
-  background: linear-gradient(
-    145deg,
-    rgba(30, 41, 59, 0.62) 0%,
-    rgba(15, 23, 42, 0.48) 100%
-  );
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
-    0 8px 20px rgba(2, 6, 23, 0.38);
+  background: #11211a;
+  border: 1px solid #2a4136;
 }
 
 @keyframes pulseAlarm {
   0%, 100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+    box-shadow: 0 0 0 0 rgba(238, 133, 114, 0.55);
   }
   50% {
     opacity: 0.88;
-    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+    box-shadow: 0 0 0 8px rgba(238, 133, 114, 0);
   }
 }
 

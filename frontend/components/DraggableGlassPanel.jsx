@@ -5,25 +5,24 @@ import { Activity, Minus, Maximize2, GripHorizontal, X, ChevronDown, ChevronUp }
 import useViewport from '../lib/useViewport';
 
 /**
- * Context-Sensitive Draggable + Minimizable + Closable ([X / Esc]) Liquid Glass Drawer.
- * On phones (<640px or short landscape), docks cleanly as a collapsible bottom sheet above
- * the Walk bar so it never overflows off-screen or blocks the entire 3D room.
+ * StudyAI Clinical Station Drawer (matches Figma 36:84 "Patient chart" dark forest card).
+ * Draggable on desktop/tablet; docks cleanly above the bottom action dock on phones.
  */
 export default function DraggableGlassPanel({
   id,
   title,
   subtitle,
   badgeText,
-  badgeColor = '#0066ff',
+  badgeColor = '#1e4a38',
   icon: Icon = Activity,
   initialPos,
-  width = 470,
+  width = 450,
   minimized,
   onToggleMinimize,
   onClose,
   zIndex = 30,
   onFocus,
-  darkMode,
+  darkMode = true,
   resetSignal,
   children,
 }) {
@@ -36,7 +35,7 @@ export default function DraggableGlassPanel({
   }, [resetSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePointerDown = (e) => {
-    if (isPhone) return; // Bottom-sheet docked on phone
+    if (isPhone) return;
     if (e.target.closest('button, select, input')) return;
     e.preventDefault();
     e.stopPropagation();
@@ -56,7 +55,7 @@ export default function DraggableGlassPanel({
     const dy = e.clientY - dragRef.current.startY;
     const panelW = Math.min(width, vw - 24);
     const nextX = Math.max(8, Math.min(vw - panelW - 8, dragRef.current.origX + dx));
-    const nextY = Math.max(56, Math.min(vh - 110, dragRef.current.origY + dy));
+    const nextY = Math.max(64, Math.min(vh - 110, dragRef.current.origY + dy));
     setPos({ x: nextX, y: nextY });
   };
 
@@ -69,24 +68,24 @@ export default function DraggableGlassPanel({
   };
 
   const glassClass = darkMode ? 'liquid-glass-dark' : 'liquid-glass-light';
-  const textPrimary = darkMode ? '#f8fafc' : '#0f172a';
-  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const textPrimary = darkMode ? '#eaf2ee' : '#101713';
+  const textSecondary = darkMode ? '#8ca69b' : '#6b746a';
+  const borderCol = darkMode ? '#1d2e27' : '#e7eae3';
 
-  // Clamp floating position on tablet/desktop resize so panel never clips off-screen
   const effectiveW = isTablet ? Math.min(width, 410, vw - 24) : Math.min(width, vw - 32);
   const clampedX = Math.max(12, Math.min(pos.x, vw - effectiveW - 12));
-  const clampedY = Math.max(64, Math.min(pos.y, vh - 120));
+  const clampedY = Math.max(66, Math.min(pos.y, vh - 130));
 
   const containerStyle = isPhone
     ? {
         position: 'fixed',
         left: '8px',
         right: '8px',
-        bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))',
+        bottom: 'calc(76px + env(safe-area-inset-bottom, 0px))',
         top: 'auto',
         width: 'auto',
         maxWidth: 'none',
-        borderRadius: minimized ? '999px' : '22px',
+        borderRadius: minimized ? '999px' : '20px',
         zIndex,
         color: textPrimary,
         transition: 'border-radius 0.2s ease, box-shadow 0.2s ease',
@@ -99,7 +98,7 @@ export default function DraggableGlassPanel({
         width: minimized ? 'auto' : `${effectiveW}px`,
         minWidth: minimized ? '220px' : undefined,
         maxWidth: minimized ? '320px' : 'calc(100vw - 24px)',
-        borderRadius: minimized ? '999px' : '24px',
+        borderRadius: minimized ? '999px' : '20px',
         zIndex,
         color: textPrimary,
         transition: dragRef.current
@@ -110,9 +109,9 @@ export default function DraggableGlassPanel({
 
   const bodyMaxHeight = isPhone
     ? isLandscape
-      ? 'calc(100dvh - 150px)'
+      ? 'calc(100dvh - 160px)'
       : '44dvh'
-    : 'calc(100dvh - 160px)';
+    : 'calc(100dvh - 180px)';
 
   return (
     <div
@@ -120,7 +119,7 @@ export default function DraggableGlassPanel({
       className={glassClass}
       style={containerStyle}
     >
-      {/* DRAGGABLE / SHEET HEADER BAR */}
+      {/* DRAGGABLE HEADER BAR */}
       <div
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -133,47 +132,41 @@ export default function DraggableGlassPanel({
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: '10px',
-          padding: minimized ? '8px 12px' : isPhone ? '10px 14px' : '11px 16px',
+          padding: minimized ? '8px 12px' : isPhone ? '11px 14px' : '13px 18px',
           cursor: isPhone ? 'default' : 'grab',
-          borderBottom: minimized
-            ? 'none'
-            : darkMode
-              ? '1px solid rgba(255,255,255,0.09)'
-              : '1px solid rgba(15,23,42,0.06)',
-          background: darkMode
-            ? 'linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01))'
-            : 'linear-gradient(90deg, rgba(255,255,255,0.55), rgba(255,255,255,0.2))',
+          borderBottom: minimized ? 'none' : `1px solid ${borderCol}`,
+          background: darkMode ? '#0a1310' : '#f8faf5',
         }}
       >
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '9px',
+            gap: '10px',
             minWidth: 0,
           }}
         >
           <span
             style={{
-              width: '28px',
-              height: '28px',
+              width: '30px',
+              height: '30px',
               borderRadius: '50%',
-              background: badgeColor,
-              color: '#ffffff',
+              background: darkMode ? 'rgba(111, 209, 169, 0.14)' : '#dff0c0',
+              border: darkMode ? '1.5px solid #6fd1a9' : `1.5px solid ${badgeColor}`,
+              color: darkMode ? '#6fd1a9' : '#1e4a38',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
-              boxShadow: `0 4px 12px ${badgeColor}55`,
             }}
           >
             <Icon size={14} />
           </span>
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
               <span
                 style={{
-                  fontSize: '12.5px',
+                  fontSize: '14px',
                   fontWeight: 800,
                   color: textPrimary,
                   whiteSpace: 'nowrap',
@@ -186,14 +179,12 @@ export default function DraggableGlassPanel({
               {badgeText && (
                 <span
                   style={{
-                    fontSize: '10px',
+                    fontSize: '10.5px',
                     fontWeight: 800,
-                    padding: '2px 7px',
+                    padding: '2px 8px',
                     borderRadius: '999px',
-                    background: darkMode
-                      ? 'rgba(255,255,255,0.12)'
-                      : 'rgba(0, 102, 255, 0.1)',
-                    color: darkMode ? '#bae6fd' : '#0066ff',
+                    background: darkMode ? '#1e3a2f' : '#dff0c0',
+                    color: darkMode ? '#bfe8d6' : '#1e4a38',
                     whiteSpace: 'nowrap',
                   }}
                 >
@@ -204,11 +195,12 @@ export default function DraggableGlassPanel({
             {!minimized && subtitle && (
               <div
                 style={{
-                  fontSize: '10px',
+                  fontSize: '11px',
                   color: textSecondary,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  marginTop: '1px',
                 }}
               >
                 {subtitle}
@@ -240,15 +232,11 @@ export default function DraggableGlassPanel({
               }}
               title={minimized ? 'Expand Drawer' : 'Minimize Drawer'}
               style={{
-                width: isTouch ? '34px' : '26px',
-                height: isTouch ? '34px' : '26px',
+                width: isTouch ? '34px' : '27px',
+                height: isTouch ? '34px' : '27px',
                 borderRadius: '50%',
-                border: darkMode
-                  ? '1px solid rgba(255,255,255,0.16)'
-                  : '1px solid rgba(15,23,42,0.1)',
-                background: darkMode
-                  ? 'rgba(255,255,255,0.08)'
-                  : 'rgba(255,255,255,0.75)',
+                border: darkMode ? '1px solid #2a4136' : '1px solid #e7eae3',
+                background: darkMode ? '#11211a' : '#ffffff',
                 color: textPrimary,
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -276,14 +264,14 @@ export default function DraggableGlassPanel({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
-                padding: isTouch ? '7px 11px' : '4px 9px',
+                padding: isTouch ? '7px 11px' : '4px 10px',
                 minHeight: isTouch ? '34px' : undefined,
                 borderRadius: '999px',
-                border: '1px solid rgba(239, 68, 68, 0.45)',
-                background: 'rgba(239, 68, 68, 0.18)',
-                color: '#f87171',
-                fontSize: isTouch ? '11px' : '10px',
-                fontWeight: 800,
+                border: darkMode ? '1px solid #2a4136' : '1px solid #e7eae3',
+                background: darkMode ? '#11211a' : '#ffffff',
+                color: darkMode ? '#afc6bc' : '#475045',
+                fontSize: isTouch ? '11.5px' : '11px',
+                fontWeight: 700,
                 cursor: 'pointer',
               }}
             >
@@ -298,7 +286,7 @@ export default function DraggableGlassPanel({
       {!minimized && (
         <div
           style={{
-            padding: isPhone ? '12px 14px' : '14px 16px',
+            padding: isPhone ? '14px' : '16px 18px',
             maxHeight: bodyMaxHeight,
             overflowY: 'auto',
             WebkitOverflowScrolling: 'touch',

@@ -60,13 +60,15 @@ const Room3D = dynamic(() => import('../components/Room3D'), {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#09101d',
-        color: '#38bdf8',
+        gap: '12px',
+        background: '#0a1310',
+        color: '#6fd1a9',
         fontSize: '14px',
-        fontWeight: 700,
+        fontWeight: 800,
       }}
     >
-      Preparing exam room...
+      <img src="/figma-assets/logo-mark-lime.svg" alt="" width={26} height={23} />
+      <span>Preparing 3D patient room…</span>
     </div>
   ),
 });
@@ -107,7 +109,6 @@ export default function StudyAiExamPage() {
   const [examStage, setExamStage] = useState(EXAM_STAGES.PRE_BRIEFING);
   const [darkMode, setDarkMode] = useState(true);
   const [audioMuted, setAudioMuted] = useState(true);
-  const [cameraMode, setCameraMode] = useState('third_person');
   // Render quality (DPR) mode, remembered between sessions; stats come back from the 3D canvas
   const [quality, setQuality] = useState('auto');
   const [qualityStats, setQualityStats] = useState({ fps: 0, dpr: 1 });
@@ -124,6 +125,12 @@ export default function StudyAiExamPage() {
   }, []);
   const [cameraFocusId, setCameraFocusId] = useState('overview');
   const [cameraTrigger, setCameraTrigger] = useState(0);
+  // Station actions cue a physical mocap reach from the 3D nurse ({ station, nonce })
+  const [nurseCue, setNurseCue] = useState({ station: null, nonce: 0 });
+  const cueNurse = useCallback(
+    (station) => setNurseCue((c) => ({ station, nonce: c.nonce + 1 })),
+    []
+  );
   const [introTrigger, setIntroTrigger] = useState(0);
   const [activeDrawerId, setActiveDrawerId] = useState(null);
   const [drawerMinimized, setDrawerMinimized] = useState(false);
@@ -488,6 +495,7 @@ export default function StudyAiExamPage() {
   /* ---------------- Station actions ---------------- */
   const handlePowerOn = () => {
     if (clin.monitorConnected) return;
+    cueNurse('bedside_monitor');
     patch({ monitorConnected: true });
     recordEvent(
       'POWER_ON_MONITOR',
@@ -497,6 +505,7 @@ export default function StudyAiExamPage() {
   };
 
   const handleDocumentVitals = () => {
+    cueNurse('bedside_monitor');
     patch({ vitalsDocumented: true });
     recordEvent(
       'DOCUMENT_VITALS',
@@ -508,18 +517,21 @@ export default function StudyAiExamPage() {
   const handleVerifyId = () => {
     if (clin.verifiedId) return;
     const p = scenarioData.patient;
+    cueNurse('wristband');
     patch({ verifiedId: true });
     recordEvent('VERIFY_PATIENT_ID', 'wristband', `${p.name} • DOB ${p.dob} • ${p.mrn}`);
   };
 
   const handleFlagAllergy = () => {
     if (clin.allergyFlagged) return;
+    cueNurse('ehr_tablet');
     patch({ allergyFlagged: true });
     recordEvent('FLAG_ALLERGY', 'ehr_tablet', scenarioData.ehr_tabs.allergies);
   };
 
   const handleCefazolin = () => {
     if (clin.cefazolinStatus) return;
+    cueNurse('ehr_tablet');
     checkBlind(EX.mar_actions.cefazolin.label, 'ehr_tablet');
     if (clin.allergyFlagged) {
       patch({ cefazolinStatus: 'HELD' });
@@ -536,6 +548,7 @@ export default function StudyAiExamPage() {
 
   const handlePrepareNaloxone = () => {
     if (clin.naloxonePrepared) return;
+    cueNurse('ehr_tablet');
     checkBlind(EX.mar_actions.naloxone.label, 'ehr_tablet');
     patch({ naloxonePrepared: true });
     recordEvent('PREPARE_NALOXONE', 'ehr_tablet', 'Naloxone 0.4 mg drawn up for IV push');
@@ -543,6 +556,7 @@ export default function StudyAiExamPage() {
 
   const handleAdministerNaloxone = () => {
     if (!clin.naloxonePrepared) return;
+    cueNurse('iv_pump');
     checkBlind(EX.naloxone.administer_label, 'iv_pump');
     const indicated = isNaloxoneIndicated(vitals, scenarioData);
     renarcStartRef.current = null;
@@ -559,6 +573,7 @@ export default function StudyAiExamPage() {
   };
 
   const handlePcaOption = (opt) => {
+    cueNurse('iv_pump');
     checkBlind(opt.label, 'iv_pump');
     if (opt.effect === 'ACUTE_OPIOID_TOXICITY') {
       patch({ opioidLevel: 'toxic_bolus' });
@@ -576,6 +591,7 @@ export default function StudyAiExamPage() {
 
   const handleSetBed = (pos) => {
     if (pos.angle === clin.bedAngle) return;
+    cueNurse('hospital_bed');
     clinicalAudio.playBedServoHum(clin.bedAngle, pos.angle);
     patch({ bedAngle: pos.angle });
     recordEvent(pos.event_code, 'hospital_bed', `${pos.title} (${pos.angle}°)`, {
@@ -585,6 +601,7 @@ export default function StudyAiExamPage() {
 
   const handleSetO2 = (deviceId) => {
     if (deviceId === clin.o2Device) return;
+    cueNurse('wall_oxygen');
     if (deviceId) checkBlind(`Supplemental O2 — ${deviceId}`, 'wall_oxygen');
     patch({ o2Device: deviceId });
     recordEvent(
@@ -598,27 +615,48 @@ export default function StudyAiExamPage() {
 
   /* ---------------- Render ---------------- */
   const tk = examTokens(darkMode);
-  const glassClass = darkMode ? 'liquid-glass-dark' : 'liquid-glass-light';
   const remainingSec = Math.max(0, EX.duration_sec - examElapsed);
-  const clockColor = remainingSec <= 30 ? '#ef4444' : remainingSec <= 60 ? '#f59e0b' : tk.text;
-  // Constant label: switching chapters on monitor power-on would cue the candidate that something changed
-  const phaseLabel = EX.bedside_phase_label;
-  const pillBase = {
-    display: 'flex',
+  const clockColor =
+    remainingSec <= 30 ? '#ee8572' : remainingSec <= 60 ? '#e8b04b' : '#bfe8d6';
+
+  // Format patient name as "DOE, John" to match Figma 36:12 ("ADELEKE, Tunde")
+  const nameParts = (scenarioData.patient.name || 'John Doe').trim().split(/\s+/);
+  const formattedPatientName =
+    nameParts.length >= 2
+      ? `${nameParts[nameParts.length - 1].toUpperCase()}, ${nameParts.slice(0, -1).join(' ')}`
+      : scenarioData.patient.name;
+
+  // Recent 3 candidate actions for the Figma 36:138..36:143 trace chips
+  const recentTrace = actionTimeline
+    .filter((e) => e.action !== 'BEGIN_TIMED_ASSESSMENT' && e.action !== 'BEDSIDE_PHASE_END')
+    .slice(-3);
+
+  const totalStations = EX.walk_bar_order.length;
+  const stationProgressPct = totalStations
+    ? Math.min(100, (inspectedStations.length / totalStations) * 100)
+    : 0;
+
+  const pillControl = {
+    display: 'inline-flex',
     alignItems: 'center',
     gap: '5px',
-    padding: isPhone ? '5px 9px' : '5px 11px',
-    minHeight: isTouch ? '34px' : undefined,
+    height: isPhone ? '30px' : '32px',
+    padding: isPhone ? '0 9px' : '0 12px',
     borderRadius: '999px',
-    border: `1px solid ${tk.border}`,
-    background: darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.75)',
-    color: tk.text,
-    fontSize: isPhone ? '10.5px' : '11px',
+    border: '1px solid #2a4136',
+    background: '#11211a',
+    color: '#afc6bc',
+    fontSize: isPhone ? '11px' : '12px',
     fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     flexShrink: 0,
   };
+
+  // Clinical colour helper for Figma 36:68 "Vitals — live" card
+  const hrColor = vitals.hr > 105 || vitals.hr < 55 ? '#e8b04b' : '#bfe8d6';
+  const spo2Color = vitals.spo2 < 90 ? '#ee8572' : vitals.spo2 < 94 ? '#e8b04b' : '#bfe8d6';
+  const rrColor = vitals.rr <= 10 ? '#ee8572' : vitals.rr > 22 ? '#e8b04b' : '#bfe8d6';
 
   return (
     <div
@@ -626,8 +664,8 @@ export default function StudyAiExamPage() {
         position: 'relative',
         width: '100vw',
         height: '100dvh',
-        background: darkMode ? '#09101d' : '#e9eef4',
-        color: tk.text,
+        background: '#0a1310',
+        color: '#eaf2ee',
         overflow: 'hidden',
       }}
     >
@@ -637,7 +675,7 @@ export default function StudyAiExamPage() {
           position: 'absolute',
           inset: 0,
           zIndex: 1,
-          filter: frozen ? 'blur(8px) saturate(0.8) brightness(0.72)' : 'none',
+          filter: frozen ? 'blur(8px) saturate(0.8) brightness(0.65)' : 'none',
           transition: 'filter 0.6s ease',
           pointerEvents: frozen ? 'none' : 'auto',
         }}
@@ -656,13 +694,13 @@ export default function StudyAiExamPage() {
           darkMode={darkMode}
           cameraFocusId={cameraFocusId}
           cameraTrigger={cameraTrigger}
-          cameraMode={cameraMode}
           introTrigger={introTrigger}
           frozen={frozen}
           inspectedStations={inspectedStations}
           stationLabels={EX.station_labels}
           onNurseArrive={handleNurseArrive}
           onNurseDepart={handleNurseDepart}
+          nurseCue={nurseCue}
           quality={quality}
           onQualityStats={setQualityStats}
         />
@@ -670,142 +708,136 @@ export default function StudyAiExamPage() {
 
       {isBedside && (
         <>
-          {/* TOP STATUS BAR */}
+          {/* TOP SCENARIO HEADER BAR — Matches Figma 36:7 ("Entry assessment — scenario") */}
           <header
-            className={glassClass}
             style={{
               position: 'fixed',
-              top: 'max(8px, env(safe-area-inset-top, 8px))',
-              left: isPhone ? '8px' : '16px',
-              right: isPhone ? '8px' : '16px',
+              top: 0,
+              left: 0,
+              right: 0,
               zIndex: 40,
-              display: 'flex',
-              flexDirection: isPhone && !isLandscape ? 'column' : 'row',
-              alignItems: isPhone && !isLandscape ? 'stretch' : 'center',
-              justifyContent: 'space-between',
-              padding: isPhone ? '6px 10px' : '7px 14px',
-              borderRadius: isPhone ? '18px' : '999px',
-              gap: isPhone ? '6px' : '10px',
-              flexWrap: isPhone ? 'nowrap' : 'wrap',
+              paddingTop: 'env(safe-area-inset-top, 0px)',
+              background: 'rgba(10, 19, 16, 0.94)',
+              borderBottom: '1px solid #1d2e27',
+              backdropFilter: 'blur(18px)',
+              WebkitBackdropFilter: 'blur(18px)',
             }}
           >
-            {/* Row 1 on phone portrait (or left+right on desktop/tablet) */}
             <div
               style={{
+                minHeight: isPhone ? '50px' : '58px',
+                padding: isPhone ? '6px 10px' : '0 22px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: '6px',
-                width: isPhone && !isLandscape ? '100%' : 'auto',
-                flex: isPhone && !isLandscape ? undefined : '1 1 auto',
-                minWidth: 0,
+                gap: isPhone ? '6px' : '12px',
+                flexWrap: isPhone ? 'nowrap' : 'wrap',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                {!isPhone && !isTablet && (
+              {/* LEFT: S Monogram + Scenario Title + Patient Pill (Figma 36:8..36:13) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: isPhone ? '8px' : '12px', minWidth: 0 }}>
+                <div
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '14px',
+                    background: '#eaf2ee',
+                    color: '#0a1310',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '14px',
+                    fontWeight: 800,
+                    flexShrink: 0,
+                  }}
+                >
+                  S
+                </div>
+
+                {!isPhone && (
                   <span
                     style={{
-                      padding: '5px 12px',
-                      borderRadius: '999px',
-                      background: 'linear-gradient(135deg, #1e3a8a, #1d4ed8)',
-                      border: '1px solid rgba(255,255,255,0.3)',
-                      color: '#ffffff',
-                      fontSize: '10.5px',
-                      fontWeight: 900,
-                      letterSpacing: '0.04em',
+                      fontSize: '15px',
+                      fontWeight: 800,
+                      color: '#eaf2ee',
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {phaseLabel}
+                    Entry assessment — scenario
                   </span>
                 )}
-                <span style={{ ...pillBase, cursor: 'default', minWidth: 0 }}>
-                  <strong>{scenarioData.patient.name}</strong>
-                  <span style={{ color: tk.muted }}>
-                    {scenarioData.patient.age}
-                    {scenarioData.patient.gender?.[0]}
-                    {!isPhone ? ` • ${scenarioData.patient.mrn}` : ''}
+
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '7px',
+                    height: '31px',
+                    padding: '0 13px',
+                    borderRadius: '999px',
+                    background: '#11211a',
+                    border: '1px solid #2a4136',
+                    fontSize: '12.5px',
+                    minWidth: 0,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <strong style={{ color: '#ddebe4', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    {formattedPatientName}
+                  </strong>
+                  <span
+                    style={{
+                      color: '#8ca69b',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {scenarioData.patient.age} {scenarioData.patient.gender?.[0]}
+                    {!isPhone ? ' · PACU · Post-op' : ''}
                   </span>
-                </span>
+                </div>
               </div>
 
-              {/* Vitals strip inline on desktop/tablet/landscape */}
-              {(!isPhone || isLandscape) && (
-                <div
-                  className="no-scrollbar"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    overflowX: 'auto',
-                    minWidth: 0,
-                  }}
-                >
-                  {clin.monitorConnected ? (
-                    [
-                      ['SpO₂', `${vitals.spo2}%`],
-                      ['HR', `${vitals.hr}`],
-                      ['RR', `${vitals.rr}`],
-                      ['BP', vitals.bp],
-                      ['EtCO₂', `${vitals.etco2}`],
-                    ].map(([label, value]) => (
-                      <span key={label} style={{ ...pillBase, cursor: 'default' }}>
-                        <span style={{ color: tk.muted, fontSize: '10px' }}>{label}</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{value}</span>
-                      </span>
-                    ))
-                  ) : (
-                    <span style={{ ...pillBase, cursor: 'default', color: tk.muted }}>
-                      <Activity size={12} /> {isPhone ? 'Monitor OFF' : 'Monitor: OFF / STANDBY'}
+              {/* RIGHT: Progress + Utility Controls + Mono Clock + Finish/Exit (Figma 36:14..36:20) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: isPhone ? '5px' : '10px', flexShrink: 0 }}>
+                {!isPhone && !isTablet && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '4px' }}>
+                    <span
+                      className="font-mono-clinical"
+                      style={{ fontSize: '12px', color: '#8ca69b', whiteSpace: 'nowrap' }}
+                    >
+                      station {inspectedStations.length} of {totalStations}
                     </span>
-                  )}
-                </div>
-              )}
+                    <div
+                      style={{
+                        width: '96px',
+                        height: '6px',
+                        borderRadius: '3px',
+                        background: '#1d2e27',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.max(6, stationProgressPct)}%`,
+                          borderRadius: '3px',
+                          background: '#6fd1a9',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: isPhone ? '4px' : '6px', flexShrink: 0 }}>
-                <span
-                  style={{
-                    ...pillBase,
-                    cursor: 'default',
-                    fontFamily: 'monospace',
-                    fontSize: isPhone ? '13px' : '15px',
-                    fontWeight: 900,
-                    color: clockColor,
-                    padding: isPhone ? '4px 8px' : '4px 12px',
-                  }}
-                  title="Time remaining"
-                >
-                  <Clock size={12} /> {formatClock(remainingSec)}
-                </span>
                 <button
-                  style={pillBase}
-                  onClick={() =>
-                    setCameraMode((m) =>
-                      m === 'third_person'
-                        ? 'cinematic'
-                        : m === 'cinematic'
-                          ? 'free_orbit'
-                          : 'third_person'
-                    )
-                  }
-                  title="Cycle Camera: 3rd-Person OTS → Cinematic Cam (Letterbox) → Free Orbit"
-                >
-                  <Camera size={12} />
-                  {!isPhone &&
-                    (cameraMode === 'third_person'
-                      ? '3rd-Person'
-                      : cameraMode === 'cinematic'
-                        ? 'Cinematic'
-                        : 'Free Orbit')}
-                </button>
-                <button
-                  style={pillBase}
+                  style={pillControl}
                   onClick={(e) => {
                     cycleQuality();
-                    // Don't keep focus: a later Space/Enter press would silently change quality again
                     e.currentTarget.blur();
                   }}
-                  title={`Render quality: ${QUALITY_TIERS[quality].label} — ${QUALITY_TIERS[quality].hint}\n${qualityStats.fps} FPS at ${nativePercent(qualityStats.dpr)}% of native resolution. Click to cycle Auto → High → Balanced → Performance.`}
+                  title={`Render quality: ${QUALITY_TIERS[quality].label} (${qualityStats.fps} FPS)`}
                 >
                   <span
                     style={{
@@ -813,189 +845,379 @@ export default function StudyAiExamPage() {
                       height: '7px',
                       borderRadius: '50%',
                       background:
-                        qualityStats.fps >= 45 ? '#10b981' : qualityStats.fps >= 25 ? '#f59e0b' : '#ef4444',
+                        qualityStats.fps >= 45 ? '#6fd1a9' : qualityStats.fps >= 25 ? '#e8b04b' : '#ee8572',
                     }}
                   />
-                  <Gauge size={12} />
                   {!isPhone && QUALITY_TIERS[quality].label}
-                  <span style={{ color: tk.muted, fontFamily: 'monospace', fontWeight: 600 }}>
-                    {isPhone
-                      ? `${qualityStats.fps}fps`
-                      : `${nativePercent(qualityStats.dpr)}% · ${qualityStats.fps}fps`}
+                  <span className="font-mono-clinical" style={{ color: '#8ca69b', fontSize: '11px' }}>
+                    {qualityStats.fps}fps
                   </span>
                 </button>
-                <button style={pillBase} onClick={handleToggleAudio} title="Monitor audio">
-                  {audioMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+
+                <button style={pillControl} onClick={handleToggleAudio} title="Toggle clinical audio">
+                  {audioMuted ? <VolumeX size={13} /> : <Volume2 size={13} color="#6fd1a9" />}
                 </button>
-                <button style={pillBase} onClick={() => setDarkMode((d) => !d)} title="Theme">
-                  {darkMode ? <Sun size={12} /> : <Moon size={12} />}
-                </button>
+
+                {/* Countdown Timer Pill (Figma 36:17) */}
+                <div
+                  className="font-mono-clinical"
+                  style={{
+                    height: '31px',
+                    padding: isPhone ? '0 10px' : '0 14px',
+                    borderRadius: '15.5px',
+                    background: '#1a2c25',
+                    color: clockColor,
+                    fontSize: isPhone ? '14px' : '16.5px',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  title="Time remaining"
+                >
+                  {formatClock(remainingSec)}
+                </div>
+
+                {/* Outlined Save & Exit / Escalate button (Figma 36:19) */}
                 <button
                   onClick={() => setShowConcludeConfirm(true)}
                   style={{
-                    ...pillBase,
-                    padding: isPhone ? '5px 10px' : '6px 14px',
-                    background: 'linear-gradient(135deg, #0066ff, #2563eb)',
-                    border: '1px solid rgba(255,255,255,0.45)',
-                    color: '#ffffff',
-                    fontWeight: 900,
-                    boxShadow: '0 6px 18px rgba(0, 102, 255, 0.4)',
+                    height: '33px',
+                    padding: isPhone ? '0 11px' : '0 15px',
+                    borderRadius: '16.5px',
+                    background: isPhone ? '#6fd1a9' : 'transparent',
+                    border: isPhone ? 'none' : '1px solid #2a4136',
+                    color: isPhone ? '#0a1310' : '#afc6bc',
+                    fontSize: isPhone ? '11.5px' : '13px',
+                    fontWeight: isPhone ? 800 : 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <LogOut size={12} />{' '}
-                  {isPhone || isTablet
-                    ? EX.conclude_button_short_label || 'Escalate (SBAR)'
-                    : EX.conclude_button_label}
+                  {isPhone ? 'Finish' : 'Save & exit'}
                 </button>
               </div>
             </div>
 
-            {/* Row 2 on phone portrait: horizontally scrollable vitals strip */}
+            {/* Mobile Portrait Vitals Strip */}
             {isPhone && !isLandscape && (
               <div
                 className="no-scrollbar"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '5px',
+                  gap: '6px',
                   overflowX: 'auto',
-                  width: '100%',
-                  paddingTop: '2px',
-                  WebkitOverflowScrolling: 'touch',
+                  padding: '0 10px 7px',
                 }}
               >
                 {clin.monitorConnected ? (
                   [
-                    ['SpO₂', `${vitals.spo2}%`],
-                    ['HR', `${vitals.hr}`],
-                    ['RR', `${vitals.rr}`],
-                    ['BP', vitals.bp],
-                    ['EtCO₂', `${vitals.etco2}`],
-                  ].map(([label, value]) => (
+                    ['HR', `${vitals.hr}`, hrColor],
+                    ['SpO₂', `${vitals.spo2}%`, spo2Color],
+                    ['BP', vitals.bp, '#bfe8d6'],
+                    ['RR', `${vitals.rr}`, rrColor],
+                    ['EtCO₂', `${vitals.etco2}`, '#bfe8d6'],
+                  ].map(([label, val, col]) => (
                     <span
                       key={label}
                       style={{
-                        ...pillBase,
-                        cursor: 'default',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
                         padding: '3px 9px',
-                        minHeight: '26px',
+                        borderRadius: '999px',
+                        background: '#11211a',
+                        border: '1px solid #2a4136',
+                        fontSize: '11px',
+                        flexShrink: 0,
                       }}
                     >
-                      <span style={{ color: tk.muted, fontSize: '9.5px' }}>{label}</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '11.5px' }}>{value}</span>
+                      <span style={{ color: '#8ca69b' }}>{label}</span>
+                      <span className="font-mono-clinical" style={{ color: col, fontWeight: 600 }}>
+                        {val}
+                      </span>
                     </span>
                   ))
                 ) : (
-                  <span
-                    style={{
-                      ...pillBase,
-                      cursor: 'default',
-                      color: tk.muted,
-                      padding: '3px 10px',
-                      minHeight: '26px',
-                      fontSize: '10px',
-                    }}
-                  >
-                    <Activity size={11} /> Monitor: OFF / STANDBY — Walk to Bedside Monitor to power on
+                  <span style={{ fontSize: '11px', color: '#8ca69b', padding: '2px 4px' }}>
+                    Vitals — standby (walk to Bedside Monitor to power on)
                   </span>
                 )}
               </div>
             )}
           </header>
 
-          {/* BOTTOM STATION BAR (single-row swipeable rail on phone/tablet; neutral labels) */}
-          <div
-            className={`${glassClass} no-scrollbar`}
-            style={{
-              position: 'fixed',
-              bottom: 'max(10px, env(safe-area-inset-bottom, 10px))',
-              left: isPhone ? '8px' : '50%',
-              right: isPhone ? '8px' : 'auto',
-              transform: isPhone ? 'none' : 'translateX(-50%)',
-              zIndex: 38,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: isPhone ? '6px 10px' : '7px 14px',
-              borderRadius: '999px',
-              maxWidth: isPhone ? 'none' : 'calc(100vw - 24px)',
-              flexWrap: isPhone || isTablet ? 'nowrap' : 'wrap',
-              overflowX: isPhone || isTablet ? 'auto' : 'visible',
-              justifyContent: isPhone || isTablet ? 'flex-start' : 'center',
-              WebkitOverflowScrolling: 'touch',
-            }}
-          >
-            <span
+          {/* FLOATING "Vitals — live" CARD ON DESKTOP/TABLET (Matches Figma 36:68) */}
+          {(!isPhone || isLandscape) && (
+            <div
+              onClick={() => handleSelectStation('bedside_monitor')}
+              title="Click to walk to Bedside Monitor"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                fontSize: '10.5px',
-                fontWeight: 800,
-                color: tk.accent,
-                paddingRight: '6px',
-                borderRight: `1px solid ${tk.border}`,
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
+                position: 'fixed',
+                top: '74px',
+                left: '20px',
+                zIndex: 28,
+                width: '216px',
+                padding: '14px 18px',
+                borderRadius: '14px',
+                background: 'rgba(13, 27, 21, 0.90)',
+                border: '1px solid #2a4136',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                cursor: 'pointer',
+                boxShadow: '0 14px 32px rgba(0, 0, 0, 0.42)',
               }}
             >
-              <Footprints size={13} /> {isPhone ? 'Walk:' : 'Walk to:'}
-            </span>
-            {/* Doorway first, then stations in physical room layout (NOT the clinical priority order) */}
-            <button style={{ ...pillBase, color: tk.muted }} onClick={handleDoorwayView}>
-              Doorway View
-            </button>
-            {EX.walk_bar_order.map((id) => {
-              const active = activeDrawerId === id;
-              const visited = inspectedStations.includes(id);
-              return (
-                <button
-                  key={id}
-                  onClick={(e) => {
-                    // Drop focus so a later Space/Enter press can't re-trigger the walk
-                    e.currentTarget.blur();
-                    handleSelectStation(id);
-                  }}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: clin.monitorConnected ? '10px' : '6px',
+                }}
+              >
+                <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#8ca69b' }}>
+                  {clin.monitorConnected ? 'Vitals — live' : 'Vitals — standby'}
+                </span>
+                <span
                   style={{
-                    ...pillBase,
-                    background: active
-                      ? 'linear-gradient(135deg, #0066ff, #2563eb)'
-                      : pillBase.background,
-                    color: active ? '#ffffff' : tk.text,
-                    opacity: visited && !active ? 0.8 : 1,
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    background: clin.monitorConnected ? '#6fd1a9' : '#5e7a6c',
+                  }}
+                />
+              </div>
+
+              {clin.monitorConnected ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {[
+                    ['HR', `${vitals.hr}`, hrColor],
+                    ['SpO₂', `${vitals.spo2}%`, spo2Color],
+                    ['BP', vitals.bp, '#bfe8d6'],
+                    ['RR', `${vitals.rr}`, rrColor],
+                    ['EtCO₂', `${vitals.etco2}`, '#bfe8d6'],
+                  ].map(([label, value, color]) => (
+                    <div
+                      key={label}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span style={{ fontSize: '12.5px', color: '#afc6bc' }}>{label}</span>
+                      <span
+                        className="font-mono-clinical"
+                        style={{ fontSize: '17px', fontWeight: 600, color }}
+                      >
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: '12px', color: '#afc6bc', lineHeight: 1.45 }}>
+                  Telemetry off — click or walk to <strong style={{ color: '#6fd1a9' }}>Bedside Monitor</strong> to power on.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* BOTTOM CLINICAL ACTION & WALK DOCK — Matches Figma 36:129..36:155 */}
+          <div
+            style={{
+              position: 'fixed',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 38,
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+              background: 'rgba(10, 19, 16, 0.94)',
+              borderTop: '1px solid #1d2e27',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+            }}
+          >
+            <div
+              style={{
+                padding: isPhone ? '8px 10px 10px' : '12px 22px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: isPhone ? '6px' : '10px',
+              }}
+            >
+              {/* Top Prompt + Recent Timestamped Trace Chips (Desktop / Tablet — Figma 36:129 + 36:138) */}
+              {!isPhone && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <span
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '14.5px', fontWeight: 800, color: '#eaf2ee' }}>
+                      What do you do next?
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#5e7a6c' }}>
+                      Walk to any bedside station or click its pin in the room
+                    </span>
+                  </div>
+
+                  {recentTrace.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {recentTrace.map((ev) => (
+                        <span
+                          key={ev.step}
+                          className="font-mono-clinical"
+                          style={{
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            background: '#11211a',
+                            border: '1px solid #1d2e27',
+                            color: '#afc6bc',
+                            fontSize: '11px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {formatClock(ev.timestamp_sec)} {(ev.station_label || ev.label).toLowerCase()}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Station Action Cards + Primary Mint CTA ("Finish and see my gap chart" — Figma 36:144 + 36:154) */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                }}
+              >
+                <div
+                  className="no-scrollbar"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    overflowX: 'auto',
+                    flex: 1,
+                    minWidth: 0,
+                    WebkitOverflowScrolling: 'touch',
+                  }}
+                >
+                  <button
+                    onClick={handleDoorwayView}
                     style={{
-                      width: '7px',
-                      height: '7px',
-                      borderRadius: '50%',
-                      background: active ? '#ffffff' : visited ? '#475569' : '#0066ff',
+                      height: isPhone ? '38px' : '42px',
+                      padding: '0 14px',
+                      borderRadius: '12px',
+                      background: cameraFocusId === 'overview' && !activeDrawerId ? '#143528' : '#11211a',
+                      border:
+                        cameraFocusId === 'overview' && !activeDrawerId
+                          ? '1.5px solid #6fd1a9'
+                          : '1px solid #2a4136',
+                      color: '#afc6bc',
+                      fontSize: '12.5px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                     }}
-                  />
-                  {EX.station_labels[id]}
-                </button>
-              );
-            })}
+                  >
+                    Doorway view
+                  </button>
+
+                  {EX.walk_bar_order.map((id) => {
+                    const active = activeDrawerId === id;
+                    const visited = inspectedStations.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          handleSelectStation(id);
+                        }}
+                        style={{
+                          height: isPhone ? '38px' : '42px',
+                          padding: '0 15px',
+                          borderRadius: '12px',
+                          background: active ? '#143528' : '#11211a',
+                          border: active ? '2px solid #6fd1a9' : '1px solid #2a4136',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: active ? 700 : 500,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: '7px',
+                            height: '7px',
+                            borderRadius: '50%',
+                            background: active ? '#6fd1a9' : visited ? '#4e8a72' : '#6fd1a9',
+                            opacity: visited && !active ? 0.6 : 1,
+                          }}
+                        />
+                        {EX.station_labels[id]}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {!isPhone && (
+                  <button
+                    onClick={() => setShowConcludeConfirm(true)}
+                    style={{
+                      height: '42px',
+                      padding: '0 22px',
+                      borderRadius: '12px',
+                      background: '#6fd1a9',
+                      border: 'none',
+                      color: '#0a1310',
+                      fontSize: '14px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Finish and see my gap chart
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* STATION PANEL (opens only after the nurse arrives) */}
+          {/* STATION PANEL (opens once the nurse arrives at the bedside station) */}
           {activeDrawerId && (
             <DraggableGlassPanel
               id="drawer"
-              title={EX.station_labels[activeDrawerId]}
+              title={activeDrawerId === 'ehr_tablet' ? 'Patient chart' : EX.station_labels[activeDrawerId]}
               subtitle={
                 isTouch
-                  ? 'Inspecting station • Tap [v] to peek at room'
+                  ? 'Inspecting station • Tap chevron to peek at room'
                   : 'Inspecting station • Press [Esc] to close'
               }
               icon={OBJECT_ICONS[activeDrawerId] || Activity}
-              badgeColor="#1d4ed8"
+              badgeColor="#1e4a38"
               initialPos={{
-                x: Math.max(16, vw - 470 - 20),
-                y: 76,
+                x: Math.max(16, vw - 440 - 20),
+                y: 72,
               }}
-              width={470}
+              width={440}
               minimized={drawerMinimized}
               onToggleMinimize={() => setDrawerMinimized((m) => !m)}
               onClose={() => {
@@ -1039,28 +1261,56 @@ export default function StudyAiExamPage() {
 
           {/* CONCLUDE CONFIRMATION */}
           {showConcludeConfirm && (
-            <ExamOverlay darkMode={darkMode} width={480}>
-              <div style={{ padding: isPhone ? '18px 16px' : '22px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ fontSize: '17px', fontWeight: 900 }}>{EX.conclude_confirm.title}</div>
-                <div style={{ fontSize: '12.5px', color: tk.muted, lineHeight: 1.5 }}>
-                  {EX.conclude_confirm.body}
+            <ExamOverlay darkMode width={480}>
+              <div
+                style={{
+                  padding: isPhone ? '20px 18px' : '24px 26px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#eaf2ee' }}>
+                  Finish bedside scenario?
                 </div>
-                <div className="exam-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
-                  <button style={{ ...pillBase, justifyContent: 'center' }} onClick={() => setShowConcludeConfirm(false)}>
-                    {EX.conclude_confirm.cancel_label}
+                <div style={{ fontSize: '13.5px', color: '#afc6bc', lineHeight: 1.55 }}>
+                  Your bedside choices and their order will be locked as a structured trace, followed
+                  by {EX.exit_questions.length} clinical escalation questions to build your gap chart.
+                </div>
+                <div
+                  className="exam-actions"
+                  style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}
+                >
+                  <button
+                    style={{
+                      ...pillControl,
+                      height: '42px',
+                      padding: '0 18px',
+                      justifyContent: 'center',
+                    }}
+                    onClick={() => setShowConcludeConfirm(false)}
+                  >
+                    Return to bedside
                   </button>
                   <button
                     onClick={() => endBedside('STUDENT_CONCLUDED')}
                     style={{
-                      ...pillBase,
+                      height: '42px',
+                      padding: '0 22px',
+                      borderRadius: '999px',
+                      background: '#6fd1a9',
+                      color: '#0a1310',
+                      fontWeight: 800,
+                      fontSize: '13.5px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
-                      background: 'linear-gradient(135deg, #0066ff, #2563eb)',
-                      color: '#ffffff',
-                      fontWeight: 900,
-                      border: '1px solid rgba(255,255,255,0.45)',
+                      gap: '7px',
                     }}
                   >
-                    <LogOut size={13} /> {EX.conclude_confirm.confirm_label}
+                    <LogOut size={14} /> Continue to exit questions
                   </button>
                 </div>
               </div>

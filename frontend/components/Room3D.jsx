@@ -16,11 +16,9 @@ import {
   RoundedBox,
   Environment,
   useGLTF,
-  PerformanceMonitor,
 } from '@react-three/drei';
 import {
   EffectComposer,
-  N8AO,
   Bloom,
   SMAA,
   Vignette,
@@ -43,21 +41,13 @@ import {
   nearestFree,
 } from '../lib/navigation';
 
-// Locomotion tuning (m/s, m/s^2). ~1.4 m/s is a brisk clinical walking pace.
-const WALK_SPEED = 1.45;
-const WALK_ACCEL = 3.2;
-const WALK_DECEL = 4.5;
-// Natural gait reference: hip-to-ankle leg length of the scaled nurse avatar (metres)
-const NURSE_LEG_LEN = 0.78;
-
-/** Keeps a camera position inside the cutaway room envelope (walls, ceiling, open-side margin). */
-const ROOM_FOCUS = new THREE.Vector3(0.1, 1.0, 0.2);
-function clampInsideRoom(v) {
-  v.x = THREE.MathUtils.clamp(v.x, ROOM.minX + 0.3, ROOM.maxX + 0.8);
-  v.z = THREE.MathUtils.clamp(v.z, ROOM.minZ + 0.35, ROOM.maxZ + 0.6);
-  v.y = THREE.MathUtils.clamp(v.y, 0.6, ROOM.height + 0.4);
-  return v;
-}
+// Locomotion tuning (m/s, m/s^2). ~1.25 m/s is a purposeful clinical walk; the mocap Walk clip
+// is time-scaled to this ground speed so the feet stay planted.
+const WALK_SPEED = 1.25;
+const WALK_ACCEL = 3.0;
+const WALK_DECEL = 4.2;
+const _camFwd = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
 
 /* ---------- Station Waypoints & Over-the-Shoulder 3rd-Person Camera Presets ---------- */
 const STATION_WAYPOINTS = {
@@ -139,136 +129,139 @@ const CAMERA_PRESETS = {
 };
 
 /**
- * Custom Rigged 3rd-Person RN Nurse Character (/models/nurse.glb)
- * - Uses the user's custom Tripo 3D rigged medical nurse model (medical_nurse_3d_model_*)
- *   with 65 Mixamo bones (mixamorig:Hips -> Spine -> Head, Left/Right Arms & Legs)
- * - Single texture atlas is split at shade time into skin / hair / scrub cloth / shoe masks,
- *   each with its own physically-based response (see createNurseMaterial)
- * - Scrubs default to the model's native navy; clicking the nurse cycles Periwinkle / Cobalt tints
- * - Full biomechanical walk cycle, breathing idle posture, and clinical station assessment gestures
+ * ActorCore Photorealistic Rigged 3rd-Person RN Nurse (/models/nurse_daniel.glb)
+ * - Reallusion ActorScan 3D nurse/clinician mesh (4,982 verts, 2K PBR BaseColor/Normal/ORM)
+ * - 101 CC_Base bones (including CC_Base_L_Eye, CC_Base_R_Eye, CC_Base_JawRoot & full finger rig)
+ * - 26 ARKit & Viseme facial morph targets (live physiological blinking, clinical focus & bedside warmth)
+ * - Exact ColorID / RGBMask texture (/models/nurse_daniel_masks.png) separates skin, scrubs, eyes & hair
+ * - Clicking the nurse cycles Native Surgical Plum -> StudyAI Forest -> ICU Navy -> Ceil Blue scrubs
  */
 const SCRUB_PALETTES = {
-  navy: {
-    name: 'Navy (Native)',
-    top: '#1e3a8a',
+  plum: {
+    name: 'Surgical Plum (Native)',
+    top: '#582048',
     tintStrength: 0.0,
   },
-  periwinkle: {
-    name: 'Periwinkle Sky',
-    top: '#7ba4e8',
-    tintStrength: 0.9,
+  forest: {
+    name: 'StudyAI Forest',
+    top: '#1e4a38',
+    tintStrength: 0.92,
   },
-  cobalt: {
-    name: 'Cobalt Royal',
-    top: '#0e56db',
+  navy: {
+    name: 'ICU Navy',
+    top: '#1c3a6e',
+    tintStrength: 0.92,
+  },
+  ceil: {
+    name: 'Ceil Blue',
+    top: '#3b6ea5',
     tintStrength: 0.9,
   },
 };
-const SCRUB_CYCLE = ['navy', 'periwinkle', 'cobalt'];
+const SCRUB_CYCLE = ['plum', 'forest', 'navy', 'ceil'];
 
-/**
- * Converts the Tripo single-atlas material into a masked multi-layer MeshPhysicalMaterial:
- *  - Skin:  warm albedo lift, mid roughness, view-dependent subsurface scatter rim + wrapped diffuse bleed
- *  - Hair:  low roughness + masked clearcoat lobe for a glossy highlight band, deeper albedo
- *  - Cloth: high roughness, suppressed specular, masked sheen (fabric fuzz), optional scrub recolor
- *  - Shoes: semi-gloss white synthetic
- * Masks are derived per-pixel from the albedo (navy scrubs / brown skin / black hair / white shoes).
- */
 function createNurseMaterial(src, uniforms) {
   const mat = new THREE.MeshPhysicalMaterial({
     map: src.map || null,
     normalMap: src.normalMap || null,
-    normalScale: src.normalScale ? src.normalScale.clone().multiplyScalar(1.15) : new THREE.Vector2(1.15, 1.15),
+    normalScale: src.normalScale ? src.normalScale.clone() : new THREE.Vector2(1, 1),
     roughnessMap: src.roughnessMap || null,
+    metalnessMap: src.metalnessMap || null,
+    aoMap: src.aoMap || null,
+    aoMapIntensity: 0.72,
     roughness: 1,
-    metalness: 0,
-    color: new THREE.Color(0.97, 0.97, 0.97),
-    ior: 1.4,
-    specularIntensity: 0.6,
+    metalness: 1,
+    side: THREE.DoubleSide,
+    color: new THREE.Color(1, 1, 1),
+    ior: 1.38,
+    specularIntensity: 0.5,
     sheen: 1,
-    sheenRoughness: 0.55,
-    sheenColor: new THREE.Color('#aab8e0'),
+    sheenRoughness: 0.76,
+    sheenColor: new THREE.Color('#c8d4e8'),
     clearcoat: 1,
-    clearcoatRoughness: 0.5,
+    clearcoatRoughness: 0.36,
     envMapIntensity: 0.85,
   });
   if (mat.map) mat.map.anisotropy = 8;
-  mat.name = 'nurse_layered_pbr';
+  if (mat.normalMap) mat.normalMap.anisotropy = 8;
+  mat.name = 'nurse_actorscan_pbr';
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uScrubColor = uniforms.uScrubColor;
     shader.uniforms.uScrubStrength = uniforms.uScrubStrength;
+    shader.uniforms.uNurseMasks = uniforms.uNurseMasks;
 
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
         `uniform vec3 uScrubColor;
         uniform float uScrubStrength;
+        uniform sampler2D uNurseMasks;
         void main() {`
       )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        // ---- Per-pixel material segmentation from the albedo atlas ----
-        vec3 nAlb = sqrt(max(diffuseColor.rgb, vec3(0.0)));           // ~perceptual
-        float nLuma = dot(nAlb, vec3(0.299, 0.587, 0.114));
-        float nMin = min(nAlb.r, min(nAlb.g, nAlb.b));
-        float nWhite = smoothstep(0.56, 0.74, nMin);
-        float nCloth = smoothstep(0.03, 0.13, nAlb.b - max(nAlb.r, nAlb.g)) * (1.0 - nWhite);
-        float nSkin = smoothstep(0.05, 0.15, nAlb.r - nAlb.b)
-                    * smoothstep(-0.01, 0.03, nAlb.r - nAlb.g)
-                    * (1.0 - nWhite) * (1.0 - nCloth);
-        float nHair = smoothstep(0.23, 0.11, nLuma) * (1.0 - nCloth) * (1.0 - nSkin);
+        // Exact Reallusion ColorID + RGBMask channels (opaque RGB PNG): R=Skin, G=Scrubs+Cap, B=Eyeballs
+        #ifdef USE_MAP
+          vec4 nMasks = texture2D(uNurseMasks, vMapUv);
+        #else
+          vec4 nMasks = vec4(0.0);
+        #endif
+        float nSkin = nMasks.r;
+        float nCloth = nMasks.g;
+        float nEye = nMasks.b;
 
-        // Skin: gentle warmth & saturation lift (baked AI textures read grey under ACES)
-        vec3 nSkinTone = diffuseColor.rgb * vec3(1.06, 0.97, 0.92);
-        diffuseColor.rgb = mix(diffuseColor.rgb, nSkinTone, nSkin);
-        // Hair: deepen to a rich blue-black
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.82, 0.84, 0.9), nHair);
-        // Cloth: non-destructive scrub recolor that preserves baked folds/seams
-        if (uScrubStrength > 0.01) {
+        // Non-destructive scrub recolor when toggled (preserves ActorScan folds, stitching, lanyard, ID & skin)
+        if (uScrubStrength > 0.01 && nCloth > 0.01) {
           float nLin = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-          vec3 nTint = uScrubColor * clamp(nLin / 0.05, 0.0, 2.6);
+          vec3 nTint = uScrubColor * clamp(nLin / 0.032, 0.0, 2.8);
           diffuseColor.rgb = mix(diffuseColor.rgb, nTint, nCloth * uScrubStrength);
         }
+        // Subtle living eye sclera clarity
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.08, nEye * 0.45);
         `
       )
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.88, nCloth * 0.8);
-        roughnessFactor = mix(roughnessFactor, 0.5, nSkin * 0.75);
-        roughnessFactor = mix(roughnessFactor, 0.62, nHair * 0.9);
-        roughnessFactor = mix(roughnessFactor, 0.4, nWhite * 0.6);
+        roughnessFactor = mix(roughnessFactor, 0.90, nCloth * 0.65);
+        roughnessFactor = mix(roughnessFactor, clamp(roughnessFactor * 0.94, 0.42, 0.64), nSkin * 0.55);
+        roughnessFactor = mix(roughnessFactor, 0.04, nEye * 0.95);
+        `
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        metalnessFactor *= (1.0 - nSkin) * (1.0 - nCloth) * (1.0 - nEye);
         `
       )
       .replace(
         '#include <lights_physical_fragment>',
         `#include <lights_physical_fragment>
-        material.specularColor *= mix(1.0, 0.35, nCloth);   // matte woven fabric
-        material.specularColor *= mix(1.0, 0.55, nHair);   // hair fibres: soft, low sheen
+        material.specularColor *= mix(1.0, 0.22, nCloth);
+        material.specularColor *= mix(1.0, 0.78, nSkin * (1.0 - nEye));
         #ifdef USE_SHEEN
-          material.sheenColor *= nCloth;                    // fabric fuzz only on scrubs
+          material.sheenColor *= nCloth * 0.35;
         #endif
         #ifdef USE_CLEARCOAT
-          material.clearcoat *= nHair * 0.18;               // faint hair highlight band only
+          material.clearcoat = clamp(nEye * 0.96 + nSkin * 0.06, 0.0, 1.0);
+          material.clearcoatRoughness = mix(0.42, 0.02, nEye);
         #endif
         `
       )
       .replace(
         '#include <lights_fragment_end>',
         `#include <lights_fragment_end>
-        // Skin subsurface approximation: warm wrapped bleed + view-grazing scatter rim
         float nNdV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
-        float nRim = pow(1.0 - nNdV, 3.0);
-        reflectedLight.directDiffuse += nSkin * reflectedLight.directDiffuse * vec3(0.24, 0.07, 0.03);
-        reflectedLight.indirectDiffuse += nSkin * nRim * diffuseColor.rgb * vec3(0.55, 0.22, 0.14);
-        // Cloth: soft fabric rim from fibre back-scatter
-        reflectedLight.indirectDiffuse += nCloth * nRim * diffuseColor.rgb * 0.25;
+        float nRim = pow(1.0 - nNdV, 3.6);
+        // Subtle physiological dermal wrap + woven poplin rim
+        reflectedLight.directDiffuse += nSkin * reflectedLight.directDiffuse * vec3(0.045, 0.016, 0.008);
+        reflectedLight.indirectDiffuse += nCloth * nRim * diffuseColor.rgb * 0.08;
         `
       );
   };
-  mat.customProgramCacheKey = () => 'nurse_layered_pbr_v1';
+  mat.customProgramCacheKey = () => 'nurse_actorscan_pbr_v2';
   return mat;
 }
 
@@ -295,21 +288,106 @@ function setNurseCharRotation(bone, rx = 0, ry = 0, rz = 0, order = 'XYZ') {
   bone.quaternion.copy(bone.userData.bindQuat).multiply(_nurseLocalDelta);
 }
 
+const _nurseBlendQuat = new THREE.Quaternion();
+/** Slerps the (mocap-animated) bone toward a procedural character-space pose by weight w. */
+function blendNurseCharRotation(bone, rx, ry, rz, w) {
+  if (!bone || !bone.userData.bindQuat || w <= 0.001) return;
+  _nurseEuler.set(rx, ry, rz, 'XYZ');
+  _nurseDeltaQuat.setFromEuler(_nurseEuler);
+  _nurseLocalDelta
+    .copy(bone.userData.charQuatInv)
+    .multiply(_nurseDeltaQuat)
+    .multiply(bone.userData.charQuat);
+  _nurseBlendQuat.copy(bone.userData.bindQuat).multiply(_nurseLocalDelta);
+  bone.quaternion.slerp(_nurseBlendQuat, Math.min(1, w));
+}
+
+/** Layers a small character-space rotation on top of the current (mocap) bone pose. */
+function addNurseCharRotation(bone, rx, ry, rz) {
+  if (!bone || !bone.userData.charQuat) return;
+  _nurseEuler.set(rx, ry, rz, 'XYZ');
+  _nurseDeltaQuat.setFromEuler(_nurseEuler);
+  _nurseLocalDelta
+    .copy(bone.userData.charQuatInv)
+    .multiply(_nurseDeltaQuat)
+    .multiply(bone.userData.charQuat);
+  bone.quaternion.multiply(_nurseLocalDelta);
+}
+
+/* ---------- ActorCore mocap clips retargeted onto the nurse rig (see nurse_daniel.glb) ---------- */
+const NURSE_GLB_URL = '/models/nurse_daniel.glb?v=ac3';
+const NURSE_LOOP_CLIPS = ['Idle', 'Walk'];
+const NURSE_ONE_SHOTS = ['Inspect', 'ReachHigh', 'ReachMid'];
+const NURSE_CLIP_FPS = 30;
+// Ground speed of the in-place Walk clip at timeScale 1 (root motion measured during the bake)
+const NURSE_WALK_CLIP_SPEED = 0.917;
+// Which reach the nurse performs when the candidate acts at a station
+const STATION_GESTURE = {
+  bedside_monitor: 'ReachHigh', // monitor power / controls at ~1.4 m
+  wall_oxygen: 'ReachHigh', // headwall flowmeter
+  iv_pump: 'ReachHigh', // pole-mounted PCA pump
+  hospital_bed: 'ReachMid', // bed frame control panel
+  wristband: 'ReachMid', // scan the patient's wristband
+  ehr_tablet: 'ReachMid', // workstation keyboard / screen
+};
+const _footWorld = new THREE.Vector3();
+
+const CC_BONE_ALIASES = {
+  CC_Base_Hip: 'Hips',
+  CC_Base_Pelvis: 'Pelvis',
+  CC_Base_Waist: 'Spine',
+  CC_Base_Spine01: 'Spine1',
+  CC_Base_Spine02: 'Spine2',
+  CC_Base_NeckTwist01: 'Neck',
+  CC_Base_NeckTwist02: 'Neck2',
+  CC_Base_Head: 'Head',
+  CC_Base_L_Eye: 'LeftEye',
+  CC_Base_R_Eye: 'RightEye',
+  CC_Base_JawRoot: 'Jaw',
+  CC_Base_L_Clavicle: 'LeftShoulder',
+  CC_Base_R_Clavicle: 'RightShoulder',
+  CC_Base_L_Upperarm: 'LeftArm',
+  CC_Base_R_Upperarm: 'RightArm',
+  CC_Base_L_Forearm: 'LeftForeArm',
+  CC_Base_R_Forearm: 'RightForeArm',
+  CC_Base_L_Hand: 'LeftHand',
+  CC_Base_R_Hand: 'RightHand',
+  CC_Base_L_Thigh: 'LeftUpLeg',
+  CC_Base_R_Thigh: 'RightUpLeg',
+  CC_Base_L_Calf: 'LeftLeg',
+  CC_Base_R_Calf: 'RightLeg',
+  CC_Base_L_Foot: 'LeftFoot',
+  CC_Base_R_Foot: 'RightFoot',
+  CC_Base_L_ToeBase: 'LeftToeBase',
+  CC_Base_R_ToeBase: 'RightToeBase',
+};
+
 function NurseAvatar3D({
   cameraFocusId,
   cameraTrigger,
   nurseStateRef,
-  scrubStyle = 'navy',
+  scrubStyle = 'plum',
   onToggleScrubStyle,
   frozen = false,
   onArrive,
   onDepart,
+  nurseCue,
 }) {
-  const { scene: nurseGltfScene } = useGLTF('/models/nurse.glb?v=rn2');
+  const { scene: nurseGltfScene, animations: nurseClips } = useGLTF(NURSE_GLB_URL);
+  const mixerRef = useRef(null);
+  const actionsRef = useRef({});
+  const weightsRef = useRef({ Idle: 1, Walk: 0, Inspect: 0, ReachHigh: 0, ReachMid: 0 });
+  const oneShotRef = useRef({ active: null, pending: null, pendingAge: 0 });
   const arrivedRef = useRef(false);
   const groupRef = useRef();
   const blobRef = useRef();
+  const leftFootShadowRef = useRef();
+  const rightFootShadowRef = useRef();
+  const navRingRef = useRef();
   const bonesRef = useRef({});
+  const morphMeshesRef = useRef([]);
+  const headLookYawRef = useRef(0);
+  const headLookPitchRef = useRef(0);
   const blobTexture = useMemo(() => {
     if (typeof document === 'undefined') return null;
     const c = document.createElement('canvas');
@@ -323,37 +401,44 @@ function NurseAvatar3D({
     g.fillRect(0, 0, 128, 128);
     return new THREE.CanvasTexture(c);
   }, []);
-  const scrubColorUniform = useRef({ value: new THREE.Color('#0e56db') });
+  const masksTexture = useMemo(() => {
+    if (typeof document === 'undefined') return null;
+    const tex = new THREE.TextureLoader().load('/models/nurse_daniel_masks.png?v=ac3');
+    tex.flipY = false; // Match glTF UV origin (top-left)
+    tex.colorSpace = THREE.NoColorSpace;
+    return tex;
+  }, []);
+  const scrubColorUniform = useRef({ value: new THREE.Color('#1e4a38') });
   const scrubStrengthUniform = useRef({ value: 0.0 });
+  const masksUniform = useRef({ value: null });
+  masksUniform.current.value = masksTexture;
 
   const keysRef = useRef({});
-  const walkPhaseRef = useRef(0);
   const smoothSpeedRef = useRef(0);
   const reachBlendRef = useRef(0);
 
-  const palette = SCRUB_PALETTES[scrubStyle] || SCRUB_PALETTES.navy;
+  const palette = SCRUB_PALETTES[scrubStyle] || SCRUB_PALETTES.plum;
 
   useEffect(() => {
     scrubColorUniform.current.value.set(palette.top);
     scrubStrengthUniform.current.value = palette.tintStrength;
   }, [palette.top, palette.tintStrength]);
 
-  // Configure shadows, PBR response, optional Cobalt scrub shader shift, and capture character-space bind quaternions
+  // Configure ActorScan PBR shader, morph target references, and CC_Base character-space bind quaternions
   useLayoutEffect(() => {
     if (!nurseGltfScene) return;
 
-    // 1. Restore bind pose first if re-running layout effect
     nurseGltfScene.traverse((obj) => {
       if (obj.userData.bindQuat) obj.quaternion.copy(obj.userData.bindQuat);
       if (obj.userData.bindPos) obj.position.copy(obj.userData.bindPos);
     });
 
-    // 2. Update world matrices and compute scene root inverse quaternion so bone orientations are in pure character space
     nurseGltfScene.updateMatrixWorld(true);
     const sceneWorldQuatInv = new THREE.Quaternion();
     nurseGltfScene.getWorldQuaternion(sceneWorldQuatInv).invert();
     const boneWorldQuat = new THREE.Quaternion();
     const map = {};
+    const morphMeshes = [];
 
     nurseGltfScene.traverse((obj) => {
       if (obj.isMesh) {
@@ -361,18 +446,24 @@ function NurseAvatar3D({
         obj.receiveShadow = true;
         obj.frustumCulled = false;
 
+        if (obj.morphTargetDictionary && obj.morphTargetInfluences) {
+          morphMeshes.push(obj);
+        }
+
         if (!obj.userData.nursePbr) {
           obj.material = createNurseMaterial(obj.material, {
             uScrubColor: scrubColorUniform.current,
             uScrubStrength: scrubStrengthUniform.current,
+            uNurseMasks: masksUniform.current,
           });
           obj.userData.nursePbr = true;
         }
       }
 
-      // Note: THREE.GLTFLoader sanitizes 'mixamorig:Hips' -> 'mixamorigHips' (strips colon).
-      // Index by shortName ('Hips'), sanitized name ('mixamorigHips'), and raw name ('mixamorig:Hips').
-      if (obj.isBone || (obj.name && obj.name.toLowerCase().startsWith('mixamorig'))) {
+      if (
+        obj.isBone ||
+        (obj.name && (obj.name.startsWith('CC_Base_') || obj.name === 'RL_BoneRoot'))
+      ) {
         if (!obj.userData.bindQuat) {
           obj.userData.bindQuat = obj.quaternion.clone();
         }
@@ -384,15 +475,64 @@ function NurseAvatar3D({
         obj.userData.charQuat = charQuat;
         obj.userData.charQuatInv = charQuat.clone().invert();
 
-        const shortName = obj.name.replace(/^mixamorig:?/i, '');
-        map[shortName] = obj;
         map[obj.name] = obj;
-        map[`mixamorig:${shortName}`] = obj;
+        if (CC_BONE_ALIASES[obj.name]) {
+          map[CC_BONE_ALIASES[obj.name]] = obj;
+        }
+        // Finger aliases: CC_Base_L_Mid1 -> LeftHandMiddle1, CC_Base_L_Index1 -> LeftHandIndex1, etc.
+        const fingerMatch = obj.name.match(/^CC_Base_(L|R)_(Index|Mid|Ring|Pinky|Thumb)([123])$/);
+        if (fingerMatch) {
+          const side = fingerMatch[1] === 'L' ? 'LeftHand' : 'RightHand';
+          const fname = fingerMatch[2] === 'Mid' ? 'Middle' : fingerMatch[2];
+          map[`${side}${fname}${fingerMatch[3]}`] = obj;
+        }
       }
     });
 
     bonesRef.current = map;
+    morphMeshesRef.current = morphMeshes;
   }, [nurseGltfScene]);
+
+  // Mocap animation mixer: looping Idle/Walk base layer + one-shot Inspect / Reach gestures
+  useLayoutEffect(() => {
+    if (!nurseGltfScene || !nurseClips?.length) return undefined;
+    const mixer = new THREE.AnimationMixer(nurseGltfScene);
+    const actions = {};
+    [...NURSE_LOOP_CLIPS, ...NURSE_ONE_SHOTS].forEach((name) => {
+      const src = THREE.AnimationClip.findByName(nurseClips, name);
+      if (!src) return;
+      // Drop the exporter's trailing hold-frame so loops wrap seamlessly
+      const frames = Math.round(src.duration * NURSE_CLIP_FPS);
+      const clip = THREE.AnimationUtils.subclip(src, name, 0, frames, NURSE_CLIP_FPS);
+      const action = mixer.clipAction(clip);
+      if (NURSE_LOOP_CLIPS.includes(name)) {
+        action.setLoop(THREE.LoopRepeat, Infinity);
+        action.play();
+      } else {
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+      }
+      action.setEffectiveWeight(weightsRef.current[name] || 0);
+      actions[name] = action;
+    });
+    // Desynchronise the idle so it never starts on the exact same frame
+    if (actions.Idle) actions.Idle.time = Math.random() * actions.Idle.getClip().duration;
+    mixerRef.current = mixer;
+    actionsRef.current = actions;
+    return () => {
+      mixer.stopAllAction();
+      mixer.uncacheRoot(nurseGltfScene);
+      mixerRef.current = null;
+      actionsRef.current = {};
+    };
+  }, [nurseGltfScene, nurseClips]);
+
+  // Station actions performed in the panel -> the nurse physically reaches for the equipment
+  useEffect(() => {
+    if (!nurseCue || !nurseCue.nonce) return;
+    oneShotRef.current.pending = STATION_GESTURE[nurseCue.station] || 'ReachMid';
+    oneShotRef.current.pendingAge = 0;
+  }, [nurseCue?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for WASD / Arrow keys for real-time 3rd-person nurse navigation
   useEffect(() => {
@@ -440,12 +580,25 @@ function NurseAvatar3D({
     const subSteps = Math.max(1, Math.ceil(frameDt / 0.04));
     const dt = frameDt / subSteps;
 
+    let inputFwd = 0;
+    let inputRight = 0;
+    if (keys.KeyW || keys.ArrowUp) inputFwd += 1;
+    if (keys.KeyS || keys.ArrowDown) inputFwd -= 1;
+    if (keys.KeyA || keys.ArrowLeft) inputRight -= 1;
+    if (keys.KeyD || keys.ArrowRight) inputRight += 1;
+
+    // Camera-relative XZ movement so WASD always steers naturally from any Free Orbit angle
     let moveX = 0;
     let moveZ = 0;
-    if (keys.KeyW || keys.ArrowUp) moveZ -= 1;
-    if (keys.KeyS || keys.ArrowDown) moveZ += 1;
-    if (keys.KeyA || keys.ArrowLeft) moveX -= 1;
-    if (keys.KeyD || keys.ArrowRight) moveX += 1;
+    if (inputFwd !== 0 || inputRight !== 0) {
+      state.camera.getWorldDirection(_camFwd);
+      _camFwd.y = 0;
+      if (_camFwd.lengthSq() < 1e-5) _camFwd.set(0, 0, -1);
+      else _camFwd.normalize();
+      _camRight.set(-_camFwd.z, 0, _camFwd.x);
+      moveX = _camFwd.x * inputFwd + _camRight.x * inputRight;
+      moveZ = _camFwd.z * inputFwd + _camRight.z * inputRight;
+    }
 
     const turnTowards = (targetYaw, rate) => {
       let diff = targetYaw - st.yaw;
@@ -522,6 +675,9 @@ function NurseAvatar3D({
           cameraFocusId !== 'overview'
         ) {
           arrivedRef.current = true;
+          // Lean in and examine the equipment on arrival (mocap "Inspect")
+          oneShotRef.current.pending = 'Inspect';
+          oneShotRef.current.pendingAge = 0;
           onArrive?.(cameraFocusId);
         }
       }
@@ -593,164 +749,179 @@ function NurseAvatar3D({
     );
     const reach = reachBlendRef.current;
 
-    // Natural gait scaling: people take SHORTER, quicker steps when walking slowly instead of the
-    // same long stride in slow motion. Stride (one full L+R cycle) grows with speed, and the hip
-    // swing angle is derived from it so the planted foot doesn't skate across the floor.
-    const strideLen = THREE.MathUtils.clamp(0.72 + 0.5 * vs, 0.82, 1.45);
-    const hipAmp = Math.asin(Math.min(0.6, strideLen / (4 * NURSE_LEG_LEN)));
-    const k = hipAmp / 0.46; // gait intensity: ~0.6 when strolling, ~1 at a brisk pace
-    walkPhaseRef.current += moved * ((Math.PI * 2) / strideLen);
-    const p = walkPhaseRef.current;
-
     if (!nurseGltfScene) return;
     const B = (name) => bonesRef.current[name];
 
-    // Gait phase convention: p = π/2 → LEFT heel strike (left leg forward), p = 3π/2 → RIGHT heel
-    // strike. Mid-stance (legs passing each other) happens at p = 0 and p = π.
-    // Blob shadow is widest when the feet are spread (double support) and tightest at mid-stance
-    if (blobRef.current) {
-      const spread = Math.abs(Math.sin(p)) * w * k;
-      blobRef.current.scale.set(1 - spread * 0.05, 1 + spread * 0.18, 1);
-      blobRef.current.material.opacity = 0.42 - spread * 0.04;
+    // Station posture classification (drives facial expression + gaze weight)
+    const isChartingStation = cameraFocusId === 'ehr_tablet';
+    const isPanelStation =
+      cameraFocusId === 'bedside_monitor' ||
+      cameraFocusId === 'iv_pump' ||
+      cameraFocusId === 'wall_oxygen';
+    const isBedsideStation =
+      cameraFocusId === 'wristband' || cameraFocusId === 'hospital_bed';
+
+    // ---------- 1. Mocap state machine (ActorCore clips retargeted onto the CC_Base rig) ----------
+    const mixer = mixerRef.current;
+    const actions = actionsRef.current;
+    const wts = weightsRef.current;
+    const shot = oneShotRef.current;
+
+    // Start a requested one-shot once the nurse has (almost) stopped walking
+    if (shot.pending) {
+      shot.pendingAge += frameDt;
+      if (w < 0.25 && actions[shot.pending]) {
+        const next = shot.pending;
+        const cur = shot.active ? actions[shot.active] : null;
+        const sameAndFresh =
+          cur && shot.active === next && cur.time < cur.getClip().duration * 0.6;
+        if (!sameAndFresh) {
+          const a = actions[next];
+          a.reset();
+          a.setEffectiveTimeScale(1);
+          a.play();
+          shot.active = next;
+        }
+        shot.pending = null;
+      } else if (shot.pendingAge > 1.6) {
+        shot.pending = null; // candidate kept walking: drop the gesture
+      }
     }
 
-    // 1. Pelvis (Hips) — In Armature space, bindPos.z is vertical height (+Y) and bindPos.x is lateral (+X)
-    // Inverted-pendulum walk: the pelvis is HIGHEST at mid-stance (cos 2p = 1) and LOWEST at
-    // double support when both feet are on the ground. (The old curve did the opposite, which
-    // read as a hop.) It also shifts sideways over whichever foot is carrying the weight.
-    const hips = B('Hips');
-    const idleCycle = Math.sin(t * 1.15);
-    const gaitVerticalBounce = Math.cos(p * 2) * 0.0095 * w * k - 0.004 * w * k;
-    const gaitLateralShift = -Math.cos(p) * 0.011 * w * k;
-    const idleWeightShift = idleCycle * 0.011 * (1 - w);
-    if (hips && hips.userData.bindPos) {
-      hips.position.set(
-        hips.userData.bindPos.x + gaitLateralShift + idleWeightShift,
-        hips.userData.bindPos.y,
-        hips.userData.bindPos.z + gaitVerticalBounce
-      );
-      setNurseCharRotation(
-        hips,
-        0.035 * w,
-        // Pelvis turns toward the swinging leg; gentle list (drop) on the swing side at mid-swing
-        -Math.sin(p) * 0.08 * w * k + idleCycle * 0.03 * (1 - w),
-        Math.cos(p) * 0.03 * w * k + idleCycle * 0.035 * (1 - w)
-      );
+    // A one-shot fades out near its end, or immediately when the nurse starts walking again
+    let shotTarget = 0;
+    let shotRate = 5;
+    if (shot.active) {
+      const a = actions[shot.active];
+      const remaining = a ? a.getClip().duration - a.time : 0;
+      if (!a || w > 0.15) {
+        shotRate = 9;
+      } else if (remaining > 0.45) {
+        shotTarget = 1;
+      }
     }
 
-    // 2. Spine & Chest (upright clinical posture, visible respiratory chest expansion, contrapposto S-curve)
-    const breath = Math.sin(t * 2.2) * 0.026;
-    const spineYaw = Math.sin(p) * 0.06 * w * k - idleCycle * 0.025 * (1 - w);
-    const spineRoll = -Math.cos(p) * 0.02 * w * k - idleCycle * 0.03 * (1 - w);
-    const spinePitch = -0.025 * (1 - w) + 0.03 * w + reach * 0.07 + breath;
-    setNurseCharRotation(B('Spine'), spinePitch * 0.35, spineYaw * 0.35, spineRoll * 0.4);
-    setNurseCharRotation(B('Spine1'), spinePitch * 0.35, spineYaw * 0.35, spineRoll * 0.3);
-    setNurseCharRotation(B('Spine2'), spinePitch * 0.3, spineYaw * 0.3, spineRoll * 0.3);
-
-    // 3. Neck & Head (correct auto-rig forward tilt so head is held poised & upright; natural clinical gaze scan)
-    const headYaw = Math.sin(t * 0.85) * 0.11 * (1 - w) * (1 - reach * 0.5) - spineYaw * 0.55;
-    const headPitch = -0.10 * (1 - reach) + reach * 0.08 + Math.sin(t * 1.45) * 0.028;
-    const headRoll = Math.sin(t * 0.95) * 0.025 * (1 - w);
-    setNurseCharRotation(B('Neck'), headPitch * 0.45, headYaw * 0.4, headRoll * 0.4);
-    setNurseCharRotation(B('Head'), headPitch * 0.55, headYaw * 0.6, headRoll * 0.6);
-
-    // 4. Shoulders, Arms, ForeArms & Hands
-    // Lower shoulders from A-pose and rise/fall gently with respiration
-    setNurseCharRotation(B('LeftShoulder'), 0, 0, -0.08 + breath * 0.4);
-    setNurseCharRotation(B('RightShoulder'), 0, 0, 0.08 - breath * 0.4);
-
-    // Left Arm: Adducted inward from A-pose (rz = -0.28), opposite-phase walk swing, lifts chart/watch at station
-    // Relaxed pendulum arm swing, opposite to the legs, smaller when strolling
-    const lArmWalkPitch = Math.sin(p - 0.15) * 0.33 * w * k;
-    const lArmIdlePitch = (-0.06 + Math.sin(t * 1.15 + 1.0) * 0.025) * (1 - w) - reach * 0.24;
-    setNurseCharRotation(
-      B('LeftArm'),
-      lArmWalkPitch + lArmIdlePitch,
-      -0.08 * (1 - w),
-      -0.42 * (1 - w) - 0.3 * w
-    );
-    const lElbowBend =
-      (-0.26 - Math.max(0, -Math.sin(p - 0.15)) * 0.22 * k) * w +
-      (-0.1 + breath * 0.6) * (1 - w) * (1 - reach) +
-      -0.62 * reach;
-    setNurseCharRotation(
-      B('LeftForeArm'),
-      lElbowBend,
-      -0.08 * (1 - w) - 0.32 * reach,
-      -0.10 * (1 - w)
-    );
-    setNurseCharRotation(B('LeftHand'), -0.08, -0.12, -0.08);
-
-    // Right Arm: Adducted inward from A-pose (rz = +0.28); swings forward when left leg steps; reaches at station
-    const rArmWalkPitch = -Math.sin(p - 0.15) * 0.33 * w * k;
-    const stationGesture = Math.sin(t * 2.8) * 0.06 * reach;
-    const rArmStationPitch = -0.54 * reach + stationGesture;
-    setNurseCharRotation(
-      B('RightArm'),
-      rArmWalkPitch + (-0.06 - Math.sin(t * 1.15 + 1.0) * 0.025) * (1 - w) * (1 - reach) + rArmStationPitch,
-      0.08 * (1 - w) + 0.14 * reach,
-      0.42 * (1 - w) * (1 - reach * 0.5) + 0.3 * w
-    );
-    const rElbowBend =
-      (-0.26 - Math.max(0, Math.sin(p - 0.15)) * 0.22 * k) * w +
-      (-0.1 + breath * 0.6) * (1 - w) * (1 - reach) +
-      (-0.64 - stationGesture * 0.65) * reach;
-    setNurseCharRotation(
-      B('RightForeArm'),
-      rElbowBend,
-      0.08 * (1 - w) + 0.26 * reach,
-      0.10 * (1 - w)
-    );
-    setNurseCharRotation(
-      B('RightHand'),
-      -0.08 + reach * 0.16,
-      0.12,
-      0.08
-    );
-
-    // Soft anatomical finger curl
-    ['Index', 'Middle', 'Ring', 'Pinky'].forEach((finger, fIdx) => {
-      const curl = 0.18 + fIdx * 0.03;
-      [1, 2, 3].forEach((jIdx) => {
-        setNurseCharRotation(B(`LeftHand${finger}${jIdx}`), curl, 0, -0.05);
-        setNurseCharRotation(B(`RightHand${finger}${jIdx}`), curl * (1 - reach * 0.4), 0, 0.05);
-      });
+    let shotSum = 0;
+    NURSE_ONE_SHOTS.forEach((name) => {
+      const target = name === shot.active ? shotTarget : 0;
+      wts[name] += (target - wts[name]) * Math.min(1, frameDt * shotRate);
+      if (wts[name] < 0.002 && target === 0) {
+        wts[name] = 0;
+        if (actions[name]?.isRunning()) actions[name].stop();
+        if (shot.active === name && shotTarget === 0) shot.active = null;
+      }
+      shotSum += wts[name];
     });
+    shotSum = Math.min(1, shotSum);
 
-    // 5. Lower Limbs — phase-correct biomechanical gait + contrapposto idle knee relaxation
-    // Left leg: swing phase while it moves forward (cos p > 0, p ∈ (−π/2, π/2)), heel strike at
-    // p = π/2, stance until p = 3π/2. The right leg is the same curve shifted by π.
-    const lIdleKnee = Math.max(0, idleCycle) * 0.08 + 0.04;
-    const rIdleKnee = Math.max(0, -idleCycle) * 0.08 + 0.04;
-    // Hip flexion/extension: stride-derived amplitude, slight forward bias (more flexion than extension)
-    const lHipPitch = (-Math.sin(p) * hipAmp - 0.05 * k) * w - lIdleKnee * 0.45 * (1 - w);
-    const rHipPitch = (Math.sin(p) * hipAmp - 0.05 * k) * w - rIdleKnee * 0.45 * (1 - w);
+    // Base layer: Idle <-> Walk by real ground speed; one-shots take the remaining weight
+    wts.Walk = w * (1 - shotSum);
+    wts.Idle = (1 - w) * (1 - shotSum);
 
-    // Knee: big flexion in EARLY swing so the foot clears the floor (peaks just after toe-off),
-    // straightening before heel strike; a small cushioning bend just after heel strike.
-    const swingCurve = (x) => Math.pow(Math.max(0, Math.cos(x)), 1.6);
-    const lSwingKnee = swingCurve(p + 0.45) * (0.55 + 0.3 * k) * 0.95;
-    const rSwingKnee = swingCurve(p + Math.PI + 0.45) * (0.55 + 0.3 * k) * 0.95;
-    const lStanceCushion = Math.pow(Math.max(0, Math.sin(p - 0.55)), 3) * 0.16 * k;
-    const rStanceCushion = Math.pow(Math.max(0, -Math.sin(p - 0.55)), 3) * 0.16 * k;
-    const lKneePitch = (lSwingKnee + lStanceCushion + 0.03) * w + lIdleKnee * (1 - w);
-    const rKneePitch = (rSwingKnee + rStanceCushion + 0.03) * w + rIdleKnee * (1 - w);
+    if (mixer) {
+      Object.entries(actions).forEach(([name, a]) => a.setEffectiveWeight(wts[name] || 0));
+      // Lock stride to ground speed so the feet plant instead of skating
+      if (actions.Walk) {
+        actions.Walk.setEffectiveTimeScale(
+          THREE.MathUtils.clamp(vs / NURSE_WALK_CLIP_SPEED, 0.55, 1.75)
+        );
+      }
+      mixer.update(frameDt);
+    }
 
-    // Ankle: toes up at heel strike, flat through stance, plantar-flexed push-off just before toe-off
-    const lAnklePitch = (-Math.sin(p - 0.35) * 0.17 * k + 0.03) * w;
-    const rAnklePitch = (Math.sin(p - 0.35) * 0.17 * k + 0.03) * w;
-    // Toe break only during push-off (late stance), not mid-stance
-    const lToePitch = -Math.pow(Math.max(0, -Math.sin(p + 0.25)), 2) * 0.3 * w * k;
-    const rToePitch = -Math.pow(Math.max(0, Math.sin(p + 0.25)), 2) * 0.3 * w * k;
+    // ---------- 2. Procedural overlays on top of the mocap ----------
+    // Subtle breathing so even the short idle never looks frozen
+    const breath = Math.sin(t * 2.05) * 0.012;
+    addNurseCharRotation(B('Spine2'), breath * 0.6, 0, 0);
+    addNurseCharRotation(B('LeftShoulder'), 0, 0, -breath * 0.35);
+    addNurseCharRotation(B('RightShoulder'), 0, 0, breath * 0.35);
 
-    setNurseCharRotation(B('LeftUpLeg'), lHipPitch, 0, -0.015 * (1 - w));
-    setNurseCharRotation(B('RightUpLeg'), rHipPitch, 0, 0.015 * (1 - w));
-    setNurseCharRotation(B('LeftLeg'), lKneePitch, 0, 0);
-    setNurseCharRotation(B('RightLeg'), rKneePitch, 0, 0);
-    setNurseCharRotation(B('LeftFoot'), lAnklePitch, 0, 0);
-    setNurseCharRotation(B('RightFoot'), rAnklePitch, 0, 0);
-    setNurseCharRotation(B('LeftToeBase'), lToePitch, 0, 0);
-    setNurseCharRotation(B('RightToeBase'), rToePitch, 0, 0);
+    // Head / neck gaze toward the station target (or a calm room scan when idle in open floor)
+    const lookDx = st.lookTarget.x - st.pos.x;
+    const lookDz = st.lookTarget.z - st.pos.z;
+    const horizDist = Math.max(0.35, Math.hypot(lookDx, lookDz));
+    let relLookYaw = Math.atan2(lookDx, lookDz) - st.yaw;
+    while (relLookYaw > Math.PI) relLookYaw -= Math.PI * 2;
+    while (relLookYaw < -Math.PI) relLookYaw += Math.PI * 2;
+    const idleScanYaw =
+      (Math.sin(t * 0.52) * 0.22 + Math.sin(t * 1.31) * 0.05) * (1 - w) * (1 - reach);
+    const idleScanPitch = Math.sin(t * 0.37 + 1.3) * 0.05 * (1 - w) * (1 - reach);
+    const targetYaw =
+      THREE.MathUtils.clamp(relLookYaw, -0.62, 0.62) * reach + idleScanYaw;
+    const targetPitch =
+      THREE.MathUtils.clamp(Math.atan2(1.636 - st.lookTarget.y, horizDist), -0.3, 0.38) * reach +
+      idleScanPitch;
+    headLookYawRef.current = THREE.MathUtils.lerp(
+      headLookYawRef.current,
+      targetYaw,
+      Math.min(1, frameDt * 5)
+    );
+    headLookPitchRef.current = THREE.MathUtils.lerp(
+      headLookPitchRef.current,
+      targetPitch,
+      Math.min(1, frameDt * 5)
+    );
+    const headYaw = headLookYawRef.current;
+    const headPitch = headLookPitchRef.current;
+    // Gaze weight: none while walking (natural mocap head), partial during gestures / Inspect lean
+    const lookW =
+      (1 - w) *
+      (0.55 - 0.25 * (wts.Inspect || 0) - 0.15 * ((wts.ReachHigh || 0) + (wts.ReachMid || 0)));
+    blendNurseCharRotation(B('Neck'), headPitch * 0.3, headYaw * 0.28, 0, lookW);
+    blendNurseCharRotation(B('Neck2'), headPitch * 0.22, headYaw * 0.22, 0, lookW);
+    blendNurseCharRotation(B('Head'), headPitch * 0.48, headYaw * 0.5, 0, lookW);
+
+    // Organic blink (~150ms blink every ~3.9s) + eye-gaze lead (eyes are not driven by the mocap)
+    const bWave = Math.sin(t * 0.81) * 0.5 + Math.sin(t * 1.93 + 1.2) * 0.5;
+    const blink = THREE.MathUtils.smoothstep(bWave, 0.945, 0.992);
+    const eyeYaw =
+      THREE.MathUtils.clamp(headYaw * 0.24 + Math.sin(t * 2.3) * 0.018, -0.18, 0.18) * (1 - blink);
+    const eyePitch = THREE.MathUtils.clamp(headPitch * 0.22, -0.14, 0.14) * (1 - blink);
+    setNurseCharRotation(B('LeftEye'), eyePitch, eyeYaw, 0);
+    setNurseCharRotation(B('RightEye'), eyePitch, eyeYaw, 0);
+
+    // ---------- 3. Real-time ARKit facial animation (blinks, clinical focus, bedside warmth) ----------
+    const focusing = Math.max(reach, wts.Inspect || 0);
+    for (const mesh of morphMeshesRef.current) {
+      const dict = mesh.morphTargetDictionary;
+      const infl = mesh.morphTargetInfluences;
+      if (!dict || !infl) continue;
+      const setMorph = (name, val) => {
+        const idx = dict[name];
+        if (idx !== undefined) infl[idx] = val;
+      };
+      setMorph('Eyes_Blink', blink);
+      const focusWeight = (isPanelStation || isChartingStation ? 1 : 0) * focusing;
+      const bedsideWeight = (isBedsideStation ? 1 : 0) * focusing;
+      setMorph('Brow_Drop_Left', focusWeight * 0.24);
+      setMorph('Brow_Drop_Right', focusWeight * 0.24);
+      setMorph('Eye_Squint_L', focusWeight * 0.14 + bedsideWeight * 0.08);
+      setMorph('Eye_Squint_R', focusWeight * 0.14 + bedsideWeight * 0.08);
+      setMorph('A01_Brow_Inner_Up', bedsideWeight * 0.2);
+      setMorph('Mouth_Smile', bedsideWeight * 0.16 + (1 - reach) * 0.04);
+      setMorph('Mouth_Lips_Part', 0.04 + Math.max(0, breath) * 1.6);
+    }
+
+    // ---------- 4. Contact shadows follow the real (animated) shoe positions ----------
+    if (blobRef.current) blobRef.current.material.opacity = 0.28 - w * 0.04;
+    if (navRingRef.current) {
+      navRingRef.current.material.opacity = THREE.MathUtils.lerp(0.05, 0.14, w);
+    }
+    if (groupRef.current) {
+      groupRef.current.updateWorldMatrix(true, false);
+      [
+        [B('LeftFoot'), leftFootShadowRef.current],
+        [B('RightFoot'), rightFootShadowRef.current],
+      ].forEach(([foot, shadow]) => {
+        if (!foot || !shadow) return;
+        foot.updateWorldMatrix(true, false);
+        foot.getWorldPosition(_footWorld);
+        groupRef.current.worldToLocal(_footWorld);
+        const lift = THREE.MathUtils.clamp((_footWorld.y - 0.1) / 0.14, 0, 1);
+        shadow.position.set(_footWorld.x, 0.007, _footWorld.z + 0.04);
+        shadow.material.opacity = 0.36 * (1 - lift * 0.75);
+      });
+    }
   });
 
   return (
@@ -759,40 +930,101 @@ function NurseAvatar3D({
       position={[0.25, 0, 2.35]}
       onClick={stop(() => onToggleScrubStyle?.())}
     >
-      {/* Soft contact blob shadow (follows the nurse; no render-target history, so no trails) */}
+      {/* Subtle local facial fill / corneal eye catchlight + warm shoulder rim */}
+      <pointLight
+        position={[0.16, 1.68, 0.54]}
+        intensity={0.52}
+        distance={1.65}
+        decay={2}
+        color="#fff8f0"
+      />
+      <pointLight
+        position={[-0.26, 1.84, -0.38]}
+        intensity={0.32}
+        distance={1.35}
+        decay={2}
+        color="#fde68a"
+      />
+
+      {/* Ambient torso ground shadow + dual shoe-sole contact AO */}
       <mesh
         ref={blobRef}
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, 0.006, 0.02]}
+        position={[0, 0.005, 0.02]}
         renderOrder={1}
       >
-        <planeGeometry args={[0.78, 0.78]} />
+        <planeGeometry args={[0.72, 0.72]} />
         <meshBasicMaterial
           map={blobTexture}
           color="#000000"
           transparent
-          opacity={0.42}
+          opacity={0.28}
           depthWrite={false}
           toneMapped={false}
           polygonOffset
           polygonOffsetFactor={-2}
         />
       </mesh>
-
-      {/* Ground Navigation Ring beneath RN Avatar (no depth write so AO doesn't halo it) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 0]} renderOrder={2}>
-        <ringGeometry args={[0.27, 0.3, 48]} />
+      <mesh
+        ref={leftFootShadowRef}
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0.095, 0.007, 0.05]}
+        scale={[0.85, 1.35, 1]}
+        renderOrder={1}
+      >
+        <planeGeometry args={[0.24, 0.24]} />
         <meshBasicMaterial
-          color="#38bdf8"
+          map={blobTexture}
+          color="#000000"
           transparent
-          opacity={0.55}
+          opacity={0.36}
           depthWrite={false}
           toneMapped={false}
+          polygonOffset
+          polygonOffsetFactor={-3}
+        />
+      </mesh>
+      <mesh
+        ref={rightFootShadowRef}
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[-0.095, 0.007, 0.05]}
+        scale={[0.85, 1.35, 1]}
+        renderOrder={1}
+      >
+        <planeGeometry args={[0.24, 0.24]} />
+        <meshBasicMaterial
+          map={blobTexture}
+          color="#000000"
+          transparent
+          opacity={0.36}
+          depthWrite={false}
+          toneMapped={false}
+          polygonOffset
+          polygonOffsetFactor={-3}
         />
       </mesh>
 
-      {/* User's Custom Rigged 3D RN Nurse Model (/models/nurse.glb, scaled to ~1.70m standing height) */}
-      <group scale={1.74}>
+      {/* Whisper-subtle StudyAI mint hairline floor cue (only faintly visible during locomotion) */}
+      <mesh
+        ref={navRingRef}
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0.011, 0]}
+        renderOrder={2}
+      >
+        <ringGeometry args={[0.284, 0.294, 48]} />
+        <meshBasicMaterial
+          color="#6fd1a9"
+          transparent
+          opacity={0.05}
+          depthWrite={false}
+          toneMapped={false}
+          polygonOffset
+          polygonOffsetFactor={-4}
+        />
+      </mesh>
+
+      {/* ActorCore Photorealistic Rigged RN Nurse (/models/nurse_daniel.glb, native 1.77m height) */}
+      <group scale={1}>
         <primitive object={nurseGltfScene} />
       </group>
     </group>
@@ -802,165 +1034,55 @@ function NurseAvatar3D({
 function CameraRig({
   cameraFocusId,
   cameraTrigger,
-  cameraMode = 'third_person',
-  nurseStateRef,
   controlsRef,
+  isAnimatingRef,
   introTrigger = 0,
   frozen = false,
 }) {
   const { camera } = useThree();
-  const isAnimatingRef = useRef(false);
   const animTimerRef = useRef(0);
-  const introTimerRef = useRef(introTrigger > 0 ? 0 : 99);
-  const goalPos = useMemo(() => new THREE.Vector3(0.95, 1.72, 3.35), []);
-  const goalTarget = useMemo(() => new THREE.Vector3(0, 1.15, -0.2), []);
-  const _behind = useMemo(() => new THREE.Vector3(), []);
-  const _outward = useMemo(() => new THREE.Vector3(), []);
-  const _camDir = useMemo(() => new THREE.Vector3(), []);
-  const _toTarget = useMemo(() => new THREE.Vector3(), []);
-  const _right = useMemo(() => new THREE.Vector3(), []);
+  const goalPos = useMemo(() => new THREE.Vector3(...CAMERA_PRESETS.overview.pos), []);
+  const goalTarget = useMemo(() => new THREE.Vector3(...CAMERA_PRESETS.overview.target), []);
   const _frozenPos = useMemo(() => new THREE.Vector3(...FROZEN_WIDE_CAMERA.pos), []);
   const _frozenTarget = useMemo(() => new THREE.Vector3(...FROZEN_WIDE_CAMERA.target), []);
 
-  // 4-second opening dolly runs only when the candidate presses [Enter Room & Begin]
   useEffect(() => {
-    if (introTrigger === 0) return;
-    introTimerRef.current = 0;
-    camera.position.set(0.55, 1.88, 4.95);
-  }, [introTrigger, camera]);
-
-  useEffect(() => {
-    const preset =
-      CAMERA_PRESETS[cameraFocusId] || CAMERA_PRESETS.overview;
+    const preset = CAMERA_PRESETS[cameraFocusId] || CAMERA_PRESETS.overview;
     goalPos.set(...preset.pos);
     goalTarget.set(...preset.target);
     isAnimatingRef.current = true;
     animTimerRef.current = 0;
-  }, [cameraFocusId, cameraTrigger, cameraMode, goalPos, goalTarget]);
+  }, [cameraFocusId, cameraTrigger, introTrigger, goalPos, goalTarget, isAnimatingRef]);
 
-  useFrame((state, delta) => {
-    const st = nurseStateRef.current;
-    const elapsed = state.clock.elapsedTime;
-
-    // Smoothly interpolate camera FOV like a cinema prime lens (tighter on inspection / cinematic cam)
-    const targetFov =
-      frozen
-        ? 42
-        : cameraMode === 'cinematic'
-          ? 35
-          : cameraMode === 'third_person'
-            ? st.isWalking || st.manualWalk
-              ? 43
-              : 38
-            : 44;
+  useFrame((_, delta) => {
+    const targetFov = frozen ? 42 : 44;
     if (Math.abs(camera.fov - targetFov) > 0.05) {
-      camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, Math.min(1, delta * 3.5));
+      camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, Math.min(1, delta * 4));
       camera.updateProjectionMatrix();
     }
 
-    // 0. Frozen exam gate (pre-briefing / exit questions / report): hold a still, wide establishing shot
+    // Frozen exam gate (pre-briefing / exit questions / report): hold wide establishing shot
     if (frozen) {
-      camera.position.lerp(_frozenPos, Math.min(1, delta * 2));
+      camera.position.lerp(_frozenPos, Math.min(1, delta * 2.5));
       if (controlsRef.current) {
-        controlsRef.current.target.lerp(_frozenTarget, Math.min(1, delta * 2));
+        controlsRef.current.target.lerp(_frozenTarget, Math.min(1, delta * 2.5));
         controlsRef.current.update();
       }
       return;
     }
 
-    // 1. 4-Second Opening Cinematic Dolly into Hospital Room (Chapter I PACU Arrival)
-    if (introTimerRef.current < 4.0) {
-      introTimerRef.current += delta;
-      const wp = STATION_WAYPOINTS.overview;
-      goalPos.set(wp.otsCam[0], 1.68, wp.otsCam[2] - 0.35);
-      goalTarget.set(...wp.lookAt);
-      camera.position.lerp(goalPos, Math.min(1, delta * 1.6));
-      if (controlsRef.current) {
-        controlsRef.current.target.lerp(goalTarget, Math.min(1, delta * 2.2));
-        controlsRef.current.update();
-      }
+    // Keep Free Orbit pan target gently bounded inside the room interior
+    if (controlsRef.current && !isAnimatingRef.current) {
+      const tgt = controlsRef.current.target;
+      tgt.x = THREE.MathUtils.clamp(tgt.x, ROOM.minX + 0.5, ROOM.maxX - 0.4);
+      tgt.y = THREE.MathUtils.clamp(tgt.y, 0.45, 1.9);
+      tgt.z = THREE.MathUtils.clamp(tgt.z, ROOM.minZ + 0.4, ROOM.maxZ - 0.6);
       return;
     }
 
-    // 2. RDR2-Style Cinematic Camera Mode (slow sweeping anamorphic dolly around the nurse & bedside)
-    if (cameraMode === 'cinematic') {
-      const orbitAngle = elapsed * 0.16;
-      const radius = st.isWalking || st.manualWalk ? 2.15 : 2.35;
-      const focusCenter = st.isWalking || st.manualWalk ? st.pos : st.lookTarget;
-      goalPos.set(
-        focusCenter.x + Math.sin(orbitAngle) * radius + 0.65,
-        1.48 + Math.sin(elapsed * 0.45) * 0.14,
-        focusCenter.z + Math.cos(orbitAngle) * radius + 0.95
-      );
-      goalTarget.copy(st.pos).lerp(ROOM_FOCUS, 0.55);
-      goalTarget.y = 1.18 + Math.cos(elapsed * 0.6) * 0.03;
-      clampInsideRoom(goalPos);
-
-      const step = Math.min(1, delta * 2.4);
-      camera.position.lerp(goalPos, step);
-      if (controlsRef.current) {
-        controlsRef.current.target.lerp(goalTarget, step);
-        controlsRef.current.update();
-      }
-      return;
-    }
-
-    // 3. Over-the-Shoulder 3rd-Person Follow Mode (grounded RDR2 shoulder height + organic stride sway)
-    if (cameraMode === 'third_person') {
-      const speedNorm = THREE.MathUtils.clamp((st.speed || 0) / WALK_SPEED, 0, 1);
-      const strideBobY = Math.cos(elapsed * 9.2) * 0.013 * speedNorm;
-      const strideSwayX = Math.sin(elapsed * 4.6) * 0.01 * speedNorm;
-      const breathDriftY = Math.sin(elapsed * 1.25) * 0.006 * (1 - speedNorm);
-
-      if (st.manualWalk || st.isWalking) {
-        // Follow from behind and over the right shoulder, biased toward the room's open interior
-        _behind.set(-Math.sin(st.yaw), 0, -Math.cos(st.yaw));
-        _right.set(-_behind.z, 0, _behind.x);
-        _outward.set(st.pos.x - ROOM_FOCUS.x, 0, st.pos.z - ROOM_FOCUS.z);
-        const outLen = _outward.length();
-        if (outLen > 1e-3) _outward.multiplyScalar(1 / outLen);
-        const outwardBias = THREE.MathUtils.clamp(outLen / 1.6, 0.35, 1.0) * 1.25;
-        _camDir.copy(_behind).addScaledVector(_outward, outwardBias).normalize();
-        goalPos
-          .copy(st.pos)
-          .addScaledVector(_camDir, 1.95)
-          .addScaledVector(_right, 0.34 + strideSwayX);
-        goalPos.y = 1.68 + strideBobY;
-        // Look past the nurse's shoulder into the room
-        goalTarget
-          .copy(st.pos)
-          .lerp(ROOM_FOCUS, 0.48);
-        goalTarget.y = 1.12 + strideBobY * 0.5;
-      } else {
-        // Station inspection: medium-close 50mm over-the-shoulder composition
-        _toTarget.set(st.lookTarget.x - st.pos.x, 0, st.lookTarget.z - st.pos.z);
-        if (_toTarget.lengthSq() < 1e-4) _toTarget.set(0, 0, -1);
-        _toTarget.normalize();
-        _right.set(-_toTarget.z, 0, _toTarget.x);
-        goalPos
-          .copy(st.pos)
-          .addScaledVector(_toTarget, -0.98)
-          .addScaledVector(_right, 0.78);
-        goalPos.y = 1.72 + breathDriftY;
-        goalTarget.copy(st.lookTarget).addScaledVector(_right, 0.34);
-        goalTarget.y = st.lookTarget.y + breathDriftY * 0.5;
-      }
-      clampInsideRoom(goalPos);
-
-      const step = Math.min(1, delta * 3.8);
-      camera.position.lerp(goalPos, step);
-      if (controlsRef.current) {
-        controlsRef.current.target.lerp(goalTarget, step);
-        controlsRef.current.update();
-      }
-      return;
-    }
-
-    // 4. Free Orbit Mode (smoothly dollies on station click, then releases to user orbit)
-    clampInsideRoom(camera.position);
     if (!isAnimatingRef.current) return;
     animTimerRef.current += delta;
-    const step = Math.min(1, delta * 5.0);
+    const step = Math.min(1, delta * 5.5);
 
     camera.position.lerp(goalPos, step);
     if (controlsRef.current) {
@@ -969,10 +1091,10 @@ function CameraRig({
     }
 
     if (
-      animTimerRef.current > 1.15 ||
-      (camera.position.distanceTo(goalPos) < 0.03 &&
+      animTimerRef.current > 0.9 ||
+      (camera.position.distanceTo(goalPos) < 0.04 &&
         (!controlsRef.current ||
-          controlsRef.current.target.distanceTo(goalTarget) < 0.03))
+          controlsRef.current.target.distanceTo(goalTarget) < 0.04))
     ) {
       isAnimatingRef.current = false;
     }
@@ -1115,8 +1237,13 @@ function InteractiveHotspot({
   const ctx = React.useContext(HotspotContext);
   if (!ctx.visible) return null;
   const stationLabel = ctx.labels[objConfig.id] || objConfig.label.split(' (')[0];
-  // Neutral styling only: visited stations turn slate (never a green "correct" check)
-  const dotColor = isSelected ? '#ffffff' : isCompleted ? '#475569' : '#0066ff';
+  // StudyAI Figma 36:53..36:67 Hotspot Design: circular mint/amber ring + dark forest label pill
+  const ringBorder = isSelected ? '#e8b04b' : isCompleted ? '#4e8a72' : '#6fd1a9';
+  const ringFill = isSelected
+    ? 'rgba(232, 176, 75, 0.22)'
+    : isCompleted
+      ? 'rgba(78, 138, 114, 0.14)'
+      : 'rgba(111, 209, 169, 0.14)';
 
   return (
     <group position={position}>
@@ -1124,7 +1251,6 @@ function InteractiveHotspot({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            // Drop focus so a later Space/Enter press can't silently re-trigger this station
             e.currentTarget.blur();
             onSelect(objConfig.id);
           }}
@@ -1132,44 +1258,57 @@ function InteractiveHotspot({
           onMouseLeave={() => setHovered(false)}
           style={{
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: '7px',
-            padding: '5px 11px 5px 8px',
-            borderRadius: '999px',
-            background: isSelected
-              ? 'linear-gradient(135deg, rgba(0, 102, 255, 0.88), rgba(37, 99, 235, 0.78))'
-              : hovered
-                ? 'rgba(15, 23, 42, 0.86)'
-                : 'linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(241, 245, 249, 0.56))',
-            border: isSelected
-              ? '1px solid rgba(255, 255, 255, 0.9)'
-              : '1px solid rgba(255, 255, 255, 0.75)',
-            color: isSelected || hovered ? '#ffffff' : '#0f172a',
+            gap: '5px',
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
             cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            boxShadow: isSelected
-              ? 'inset 0 1px 1px rgba(255,255,255,0.6), 0 8px 24px rgba(0, 102, 255, 0.42)'
-              : 'inset 0 1px 1px rgba(255,255,255,0.85), 0 8px 20px rgba(15, 23, 42, 0.16)',
-            transform: hovered || isSelected ? 'scale(1.06)' : 'scale(1)',
-            transition: 'all 0.15s ease',
+            transform: hovered || isSelected ? 'scale(1.08)' : 'scale(1)',
+            transition: 'transform 0.15s ease',
             fontFamily: 'inherit',
-            backdropFilter: 'blur(18px) saturate(190%)',
-            WebkitBackdropFilter: 'blur(18px) saturate(190%)',
           }}
         >
           <span
             style={{
-              width: '9px',
-              height: '9px',
+              width: '36px',
+              height: '36px',
               borderRadius: '50%',
-              background: dotColor,
-              flexShrink: 0,
-              boxShadow: isCompleted
-                ? '0 0 0 3px rgba(71, 85, 105, 0.25)'
-                : '0 0 0 3px rgba(0, 102, 255, 0.22)',
+              background: ringFill,
+              border: `2px solid ${ringBorder}`,
+              boxShadow: isSelected
+                ? '0 0 0 4px rgba(232, 176, 75, 0.18), 0 6px 18px rgba(10, 19, 16, 0.45)'
+                : '0 0 0 4px rgba(111, 209, 169, 0.10), 0 6px 18px rgba(10, 19, 16, 0.4)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
             }}
-          />
-          <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+          >
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: ringBorder,
+              }}
+            />
+          </span>
+          <span
+            style={{
+              padding: '3px 11px',
+              borderRadius: '999px',
+              background: isSelected ? '#143528' : 'rgba(10, 19, 16, 0.88)',
+              border: isSelected ? '1px solid #6fd1a9' : '1px solid #2a4136',
+              color: '#ddebe4',
+              fontSize: '11px',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 6px 16px rgba(0, 0, 0, 0.35)',
+            }}
+          >
             {stationLabel}
           </span>
         </button>
@@ -1689,7 +1828,7 @@ function PatientAndWristband({
           </mesh>
         )}
 
-        {/* Interactive Patient Verbal Assessment Bubble (only once the candidate has assessed the patient) */}
+        {/* Interactive Patient Verbal Assessment Bubble — Matches Figma 36:80 / 29:3851 */}
         {patientAssessed && verbalState.text && (
           <Html position={[0, 0.38, 0]} center zIndexRange={[18, 0]}>
             <div
@@ -1699,17 +1838,19 @@ function PatientAndWristband({
               })}
               title="Click to assess patient & trigger voice cue"
               style={{
-                maxWidth: '255px',
-                minWidth: '200px',
-                padding: '7px 11px',
+                maxWidth: '285px',
+                minWidth: '220px',
+                padding: '10px 14px',
                 borderRadius: '14px',
-                background: 'rgba(15, 23, 42, 0.82)',
-                border: `1.5px solid ${bubbleBorderColor}`,
-                color: '#f8fafc',
-                boxShadow:
-                  'inset 0 1px 1px rgba(255,255,255,0.28), 0 10px 24px rgba(2,6,23,0.45)',
-                backdropFilter: 'blur(16px) saturate(180%)',
-                WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                background: 'rgba(13, 27, 21, 0.92)',
+                borderTop: '1px solid #2a4136',
+                borderRight: '1px solid #2a4136',
+                borderBottom: '1px solid #2a4136',
+                borderLeft: '3px solid #e8b04b',
+                color: '#e4efe9',
+                boxShadow: '0 14px 30px rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 userSelect: 'none',
@@ -1717,50 +1858,30 @@ function PatientAndWristband({
             >
               <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
-                  marginBottom: '3px',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '9px',
-                    fontWeight: 800,
-                    letterSpacing: '0.04em',
-                    color: '#cbd5e1',
-                  }}
-                >
-                  PATIENT RESPONSE
-                </span>
-                <span
-                  style={{
-                    fontSize: '9px',
-                    padding: '1px 5px',
-                    borderRadius: '999px',
-                    background: 'rgba(255,255,255,0.12)',
-                    color: '#bae6fd',
-                    fontWeight: 700,
-                  }}
-                >
-                  🔊 Speak
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  fontStyle: verbalState.text.startsWith('[')
-                    ? 'italic'
-                    : 'normal',
-                  lineHeight: 1.32,
-                  color: '#f1f5f9',
+                  fontSize: '12.5px',
+                  fontWeight: 500,
+                  fontStyle: verbalState.text.startsWith('[') ? 'italic' : 'normal',
+                  lineHeight: 1.48,
+                  color: '#e4efe9',
                 }}
               >
                 {verbalState.text.startsWith('[')
                   ? verbalState.text
-                  : `"${verbalState.text}"`}
+                  : `“${verbalState.text}”`}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: '#8ca69b',
+                }}
+              >
+                <span>John Doe, 62 — PACU handoff</span>
+                <span style={{ color: '#6fd1a9', fontWeight: 700 }}>🔊 Listen</span>
               </div>
             </div>
           </Html>
@@ -2430,16 +2551,16 @@ function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle 
   );
 }
 
-/** Room alarm light pulses red when monitor is connected and SpO2 < 90%, RR <= 10, or alarm is active. */
+/** Room alarm light pulses smoothly red when monitor is connected and SpO2 < 90%, RR <= 10, or alarm is active. */
 function AlarmLight({ monitorConnected = true }) {
   const ref = useRef();
   useFrame((state) => {
     if (!ref.current) return;
-    const on = Math.floor(state.clock.elapsedTime * 2.5) % 2 === 0;
+    const pulse = (Math.sin(state.clock.elapsedTime * 5.0) + 1) * 0.5;
     const hypoxiaAlarm =
       monitorConnected && (live.alarm || live.spo2 < 90 || live.rr <= 10);
     ref.current.color.set(hypoxiaAlarm ? '#ef4444' : '#ffffff');
-    ref.current.intensity = hypoxiaAlarm ? (on ? 1.5 : 0.3) : 0.4;
+    ref.current.intensity = hypoxiaAlarm ? 0.35 + pulse * 1.1 : 0.4;
   });
   return <pointLight ref={ref} position={[1.4, 2.5, -0.5]} />;
 }
@@ -2479,20 +2600,20 @@ export default function Room3D({
   darkMode = false,
   cameraFocusId = 'overview',
   cameraTrigger = 0,
-  cameraMode = 'third_person',
   introTrigger = 0,
   frozen = false,
   inspectedStations = [],
   stationLabels = {},
   onNurseArrive,
   onNurseDepart,
+  nurseCue,
   quality = 'auto',
   onQualityStats,
 }) {
   const controlsRef = useRef();
+  const isAnimatingRef = useRef(false);
   const composerRef = useRef();
-  const [scrubStyle, setScrubStyle] = useState('navy');
-  // Controlled render resolution; AdaptiveQuality picks it and resyncs the post-processing buffers
+  const [scrubStyle, setScrubStyle] = useState('plum');
   const [dpr, setDpr] = useState(() => dprForMode(quality));
   const nurseStateRef = useRef({
     pos: new THREE.Vector3(0.25, 0, 2.35),
@@ -2542,7 +2663,7 @@ export default function Room3D({
     if (frozen) return;
     const pt = e.point;
     if (!pt) return;
-    // Clicking on/near furniture walks to the closest reachable floor spot (path routes around it)
+    if (selectedObjectId) onNurseDepart?.();
     const free = nearestFree(pt.x, pt.z);
     nurseStateRef.current.goalPos.set(free.x, 0, free.z);
     nurseStateRef.current.lookTarget.set(0, 1.15, -0.2);
@@ -2554,8 +2675,7 @@ export default function Room3D({
       <Canvas
         shadows
         dpr={dpr}
-        // Tight near/far range = much better depth precision (no z-fighting on wall trim / floor)
-        camera={{ position: [0.35, 2.25, 5.4], fov: 45, near: 0.05, far: 60 }}
+        camera={{ position: [3.5, 2.3, 4.2], fov: 44, near: 0.08, far: 50 }}
         gl={{
           antialias: false,
           powerPreference: 'high-performance',
@@ -2566,23 +2686,42 @@ export default function Room3D({
       >
         <color attach="background" args={[bgColor]} />
         <fog attach="fog" args={[bgColor, 14, 32]} />
+
+        {/* Mount OrbitControls FIRST so camera.position is finalized BEFORE HospitalRoom cutaway runs */}
+        <OrbitControls
+          ref={controlsRef}
+          enabled={!frozen}
+          enableDamping
+          dampingFactor={0.08}
+          enablePan={!frozen}
+          screenSpacePanning={false}
+          minPolarAngle={0.18}
+          maxPolarAngle={Math.PI / 2.04}
+          minDistance={1.15}
+          maxDistance={7.2}
+          target={[0, 0.95, -0.05]}
+          onStart={() => {
+            isAnimatingRef.current = false;
+          }}
+        />
+
+        <CameraRig
+          cameraFocusId={cameraFocusId}
+          cameraTrigger={cameraTrigger}
+          controlsRef={controlsRef}
+          isAnimatingRef={isAnimatingRef}
+          introTrigger={introTrigger}
+          frozen={frozen}
+        />
+
         <AdaptiveQuality
           mode={quality}
           composerRef={composerRef}
           onDpr={setDpr}
           onStats={onQualityStats}
         />
-        <HotspotContext.Provider value={hotspotCtx}>
 
-        <CameraRig
-          cameraFocusId={cameraFocusId}
-          cameraTrigger={cameraTrigger}
-          cameraMode={cameraMode}
-          nurseStateRef={nurseStateRef}
-          controlsRef={controlsRef}
-          introTrigger={introTrigger}
-          frozen={frozen}
-        />
+        <HotspotContext.Provider value={hotspotCtx}>
 
         {/* Day-shift / night-shift clinical lighting rig (window sun, exam spot, reading light, fills) */}
         <RoomLighting darkMode={darkMode} />
@@ -2599,7 +2738,7 @@ export default function Room3D({
           </Suspense>
         </EnvironmentBoundary>
 
-        {/* Enclosed Med-Surg Patient Room (vinyl floor, headwall, window + blinds, door, curtain, clock) */}
+        {/* Enclosed Med-Surg Patient Room (vinyl floor, headwall, window + lounge, door, curtain, clock) */}
         <group>
           <HospitalRoom
             darkMode={darkMode}
@@ -2607,7 +2746,7 @@ export default function Room3D({
             onFloorClick={handleFloorClick}
           />
 
-          {/* 0. Stylized Articulated 3rd-Person RN Nurse Avatar */}
+          {/* 0. ActorCore Rigged RN Nurse Avatar */}
           <NurseAvatar3D
             cameraFocusId={cameraFocusId}
             cameraTrigger={cameraTrigger}
@@ -2621,19 +2760,17 @@ export default function Room3D({
             frozen={frozen}
             onArrive={onNurseArrive}
             onDepart={onNurseDepart}
+            nurseCue={nurseCue}
           />
 
           <Suspense fallback={null}>
-            {/* 1+2. Bed and patient share one pivot so Trendelenburg (head-down) tilts both together */}
             <TrendelenburgTilt bedAngle={bedAngle}>
-              {/* 1. Hospital Bed (GLB + Articulating Headrest + Pillow) */}
               <HospitalBedGLB
                 bedAngle={Math.max(0, bedAngle)}
                 bedObj={getObj('hospital_bed')}
                 {...sel('hospital_bed')}
               />
 
-              {/* 2. Rigged 3D Patient + Cyanosis + Fowler's Pose + Wristband + Cannula + Verbal Bubble */}
               <PatientAndWristband
                 bedAngle={Math.max(0, bedAngle)}
                 o2Device={o2Device}
@@ -2646,7 +2783,6 @@ export default function Room3D({
               />
             </TrendelenburgTilt>
 
-            {/* 3. Bedside ICU Cardiomonitor + Emissive Waveform Screen + Alarm Beacon */}
             <BedsideMonitor3D
               patientName={scenarioData.patient.name}
               monitorConnected={monitorConnected}
@@ -2654,27 +2790,23 @@ export default function Room3D({
               {...sel('bedside_monitor')}
             />
 
-            {/* 4. Wall Oxygen Delivery Unit + Refractive Humidifier + Respiratory Unit */}
             <WallOxygenPanel3D
               o2Device={o2Device}
               wallO2Obj={getObj('wall_oxygen')}
               {...sel('wall_oxygen')}
             />
 
-            {/* 5. IV Pole + Morphine PCA Pump + Refractive IV Bag & Drip Chamber */}
             <IvPumpPole3D
               pcaPaused={pcaPaused}
               ivPumpObj={getObj('iv_pump')}
               {...sel('iv_pump')}
             />
 
-            {/* 6. 2D Patient EHR Workstation on Wheels */}
             <EhrWorkstationCart3D
               ehrObj={getObj('ehr_tablet')}
               {...sel('ehr_tablet')}
             />
 
-            {/* Dynamic 3D Catmull-Rom Medical Tubing & Telemetry Leads */}
             <ClinicalTubes
               o2Device={o2Device}
               pcaPaused={pcaPaused}
@@ -2682,15 +2814,8 @@ export default function Room3D({
               bedAngle={Math.max(0, bedAngle)}
             />
           </Suspense>
-
-          {/* Grounding now comes from real-time shadow maps (window sun + exam spot) + N8AO.
-              The per-frame ContactShadows depth bake was removed: its blurred render target
-              smeared the moving nurse into a lingering dark trail on the floor. */}
         </group>
 
-        {/* Post-Processing Pass: Anamorphic Bloom + RDR2 Cinematic Grade/ACES + SMAA + Cinema Lens Vignette.
-            N8AO was removed because its half-res/DPR depth buffer UV mismatch projected a magnified
-            dark ghost silhouette overlay across the viewport and stalled integrated GPUs. */}
         <EffectComposer ref={composerRef} multisampling={0}>
           <Bloom luminanceThreshold={0.95} mipmapBlur intensity={1.05} />
           <Exposure />
@@ -2700,46 +2825,7 @@ export default function Room3D({
         </EffectComposer>
 
         </HotspotContext.Provider>
-
-        <OrbitControls
-          ref={controlsRef}
-          enabled={!frozen}
-          enablePan={false}
-          minPolarAngle={Math.PI / 6}
-          maxPolarAngle={Math.PI / 2.05}
-          minDistance={1.6}
-          maxDistance={6.5}
-          target={[0, 0.95, -0.05]}
-        />
       </Canvas>
-
-      {/* Red Dead-Style 2.39:1 Anamorphic Letterbox Bars (engages smoothly in Cinematic Camera mode) */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: cameraMode === 'cinematic' && !frozen ? '8.5vh' : '0px',
-          background: 'linear-gradient(180deg, rgba(2,4,9,0.96) 75%, rgba(2,4,9,0))',
-          transition: 'height 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
-          pointerEvents: 'none',
-          zIndex: 12,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: cameraMode === 'cinematic' && !frozen ? '8.5vh' : '0px',
-          background: 'linear-gradient(0deg, rgba(2,4,9,0.96) 75%, rgba(2,4,9,0))',
-          transition: 'height 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
-          pointerEvents: 'none',
-          zIndex: 12,
-        }}
-      />
     </div>
   );
 }
@@ -2747,7 +2833,7 @@ export default function Room3D({
 useGLTF.preload('/models/hospital_bed_carlos.glb');
 useGLTF.preload('/models/pillow.glb');
 useGLTF.preload('/models/patient.glb');
-useGLTF.preload('/models/nurse.glb?v=rn2');
+useGLTF.preload(NURSE_GLB_URL);
 useGLTF.preload('/models/heart_monitor.glb');
 useGLTF.preload('/models/ventilator.glb');
 useGLTF.preload('/models/iv_pole.glb');

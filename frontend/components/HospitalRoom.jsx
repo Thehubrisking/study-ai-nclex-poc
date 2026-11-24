@@ -371,9 +371,15 @@ function HeadwallConsole({ theme, night }) {
   return (
     <group>
       {/* RECESSED POWDER-BLUE ACCENT HEADWALL PANEL (matches reference photo) */}
-      <mesh position={[0.1, 1.28, z + 0.008]} receiveShadow>
+      <mesh position={[0.1, 1.28, z + 0.015]} receiveShadow>
         <planeGeometry args={[3.35, 2.36]} />
-        <meshStandardMaterial color={theme.headwallAccent} roughness={0.85} />
+        <meshStandardMaterial
+          color={theme.headwallAccent}
+          roughness={0.85}
+          polygonOffset
+          polygonOffsetFactor={-1}
+          polygonOffsetUnits={-1}
+        />
       </mesh>
 
       {/* Left vertical wing wall framing the recessed headwall niche */}
@@ -533,14 +539,20 @@ function AcousticCeiling({ theme, night }) {
         [0.05, 0.15, 1.22, 0.62],
         [-1.35, 1.85, 1.22, 0.62],
       ].map(([tx, tz, w, d], idx) => (
-        <group key={idx} position={[tx, y - 0.004, tz]}>
+        <group key={idx} position={[tx, y - 0.008, tz]}>
           {/* White bezel frame */}
           <mesh rotation={[Math.PI / 2, 0, 0]}>
             <planeGeometry args={[w + 0.08, d + 0.08]} />
-            <meshStandardMaterial color="#e5e0d5" roughness={0.5} side={THREE.FrontSide} />
+            <meshStandardMaterial
+              color="#e5e0d5"
+              roughness={0.5}
+              side={THREE.FrontSide}
+              polygonOffset
+              polygonOffsetFactor={-1}
+            />
           </mesh>
           {/* Glowing acrylic diffuser */}
-          <mesh position={[0, -0.003, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <mesh position={[0, -0.006, 0]} rotation={[Math.PI / 2, 0, 0]}>
             <planeGeometry args={[w, d]} />
             <meshStandardMaterial
               color="#fffdf9"
@@ -548,6 +560,8 @@ function AcousticCeiling({ theme, night }) {
               emissiveIntensity={theme.trofferIntensity}
               toneMapped={false}
               side={THREE.FrontSide}
+              polygonOffset
+              polygonOffsetFactor={-2}
             />
           </mesh>
         </group>
@@ -736,15 +750,15 @@ function WindowSideLounge({ theme, night }) {
         <RoundedBox args={[0.38, 0.38, 0.38]} radius={0.015} position={[0, 0.19, 0]} castShadow>
           <meshStandardMaterial color={theme.oak} roughness={0.5} />
         </RoundedBox>
-        {/* Clear glass vase */}
+        {/* Clear glass vase (uses alpha transparency instead of transmission to prevent 800k-tri double pass) */}
         <mesh position={[0, 0.47, 0]} castShadow>
           <cylinderGeometry args={[0.055, 0.042, 0.18, 18]} />
           <meshPhysicalMaterial
             color="#d1fae5"
             transparent
-            opacity={0.55}
-            roughness={0.1}
-            transmission={0.6}
+            opacity={0.52}
+            roughness={0.12}
+            metalness={0.05}
           />
         </mesh>
         {/* Bouquet of red/pink blossoms + green foliage */}
@@ -1078,172 +1092,6 @@ function PrivacyCurtain({ theme }) {
   );
 }
 
-/* ---------------- RDR2-Style Volumetric God-Rays & Drifting Dust Motes ---------------- */
-
-const noRaycast = () => {};
-
-function makeVolumetricBeamMaterial(colorHex, maxOpacity = 0.11) {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uColor: { value: new THREE.Color(colorHex) },
-      uOpacity: { value: maxOpacity },
-    },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      varying vec3 vNormalW;
-      varying vec3 vViewDir;
-      void main() {
-        vUv = uv;
-        vec4 worldPos = modelMatrix * vec4(position, 1.0);
-        vNormalW = normalize(mat3(modelMatrix) * normal);
-        vViewDir = normalize(cameraPosition - worldPos.xyz);
-        gl_Position = projectionMatrix * viewMatrix * worldPos;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      varying vec2 vUv;
-      varying vec3 vNormalW;
-      varying vec3 vViewDir;
-      void main() {
-        // Soft bell curve across width + smooth decay from light source (vUv.y = 1) to floor (vUv.y = 0)
-        float across = pow(sin(vUv.x * 3.14159265), 1.6);
-        float along = pow(vUv.y, 0.85) * smoothstep(0.0, 0.18, vUv.y) * smoothstep(1.0, 0.82, vUv.y);
-        // Hide sheet edges when viewed at grazing angles
-        float facing = pow(abs(dot(normalize(vNormalW), normalize(vViewDir))), 0.65);
-        float alpha = across * along * facing * uOpacity;
-        gl_FragColor = vec4(uColor, alpha);
-      }
-    `,
-  });
-}
-
-function VolumetricLightShafts({ night }) {
-  const windowBeamMat = useMemo(
-    () => makeVolumetricBeamMaterial(night ? '#7dd3fc' : '#bae6fd', night ? 0.11 : 0.13),
-    [night]
-  );
-  const warmBeamMat = useMemo(
-    () => makeVolumetricBeamMaterial('#fde68a', night ? 0.095 : 0.08),
-    [night]
-  );
-
-  return (
-    <group>
-      {/* Crossed volumetric twilight shafts slanting from the picture window across the sofa & bed */}
-      {[1.15, 1.62, 2.08].map((zPos, i) => (
-        <group
-          key={i}
-          position={[-1.55, 1.18, zPos]}
-          rotation={[0, 0, -0.62]}
-        >
-          <mesh material={windowBeamMat} raycast={noRaycast}>
-            <planeGeometry args={[0.92, 2.95]} />
-          </mesh>
-          <mesh
-            material={windowBeamMat}
-            rotation={[0, Math.PI / 2.6, 0]}
-            raycast={noRaycast}
-          >
-            <planeGeometry args={[0.85, 2.95]} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* Warm golden overhead volumetric wash cone descending from the 2x4 bed troffer & headwall cove */}
-      <group position={[0.05, 1.92, -0.05]}>
-        <mesh material={warmBeamMat} raycast={noRaycast}>
-          <planeGeometry args={[1.65, 1.9]} />
-        </mesh>
-        <mesh
-          material={warmBeamMat}
-          rotation={[0, Math.PI / 2, 0]}
-          raycast={noRaycast}
-        >
-          <planeGeometry args={[1.45, 1.9]} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
-function AtmosphericDustMotes() {
-  const pointsRef = useRef();
-  const count = 135;
-
-  const { geo, basePositions, phases } = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    const pos = new Float32Array(count * 3);
-    const base = new Float32Array(count * 3);
-    const ph = new Float32Array(count);
-    const rnd = seededRandom(409);
-
-    for (let i = 0; i < count; i++) {
-      // Concentrate motes along the window light shaft and above the bed
-      const inWindowBeam = i < count * 0.6;
-      const x = inWindowBeam ? -2.6 + rnd() * 2.4 : -1.1 + rnd() * 2.4;
-      const y = 0.45 + rnd() * 2.15;
-      const z = inWindowBeam ? 0.55 + rnd() * 2.05 : -1.35 + rnd() * 2.6;
-      pos[i * 3] = base[i * 3] = x;
-      pos[i * 3 + 1] = base[i * 3 + 1] = y;
-      pos[i * 3 + 2] = base[i * 3 + 2] = z;
-      ph[i] = rnd() * Math.PI * 2;
-    }
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    return { geo: g, basePositions: base, phases: ph };
-  }, []);
-
-  const moteTex = useMemo(() => {
-    if (typeof document === 'undefined') return null;
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const ctx = c.getContext('2d');
-    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-    grad.addColorStop(0, 'rgba(255, 250, 235, 1)');
-    grad.addColorStop(0.4, 'rgba(254, 240, 195, 0.55)');
-    grad.addColorStop(1, 'rgba(254, 240, 195, 0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(c);
-  }, []);
-
-  useFrame(({ clock }) => {
-    if (!pointsRef.current) return;
-    const t = clock.elapsedTime;
-    const attr = pointsRef.current.geometry.attributes.position;
-    const arr = attr.array;
-    for (let i = 0; i < count; i++) {
-      const p = phases[i];
-      arr[i * 3] = basePositions[i * 3] + Math.sin(t * 0.28 + p) * 0.09;
-      arr[i * 3 + 1] =
-        0.4 +
-        ((basePositions[i * 3 + 1] - 0.4 + t * 0.025 + Math.cos(t * 0.22 + p) * 0.04) % 2.2);
-      arr[i * 3 + 2] = basePositions[i * 3 + 2] + Math.cos(t * 0.24 + p * 1.3) * 0.08;
-    }
-    attr.needsUpdate = true;
-  });
-
-  return (
-    <points ref={pointsRef} geometry={geo} raycast={noRaycast}>
-      <pointsMaterial
-        map={moteTex}
-        color="#fef3c7"
-        size={0.038}
-        transparent
-        opacity={0.48}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        sizeAttenuation
-      />
-    </points>
-  );
-}
-
 /* ---------------- Physically-Based Chiaroscuro Cinematic Lighting Rig ---------------- */
 
 export function RoomLighting({ darkMode = false }) {
@@ -1339,6 +1187,8 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
   const theme = darkMode ? THEMES.night : THEMES.day;
   const leftWallRef = useRef();
   const backWallRef = useRef();
+  const curtainRef = useRef();
+  const ceilingRef = useRef();
 
   const roomW = ROOM.maxX - ROOM.minX;
   const roomD = ROOM.maxZ - ROOM.minZ;
@@ -1347,10 +1197,16 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
     [theme, roomW, roomD]
   );
 
-  // Cutaway: hide a wall whenever the orbit camera swings behind it
+  // 360° Free Orbit cutaway: runs AFTER OrbitControls updates camera.position so walls/curtain
+  // hide cleanly with generous inner clearance before the near plane ever clips an exterior face.
   useFrame(({ camera }) => {
-    if (leftWallRef.current) leftWallRef.current.visible = camera.position.x > ROOM.minX - 0.05;
-    if (backWallRef.current) backWallRef.current.visible = camera.position.z > ROOM.minZ - 0.05;
+    const cx = camera.position.x;
+    const cy = camera.position.y;
+    const cz = camera.position.z;
+    if (leftWallRef.current) leftWallRef.current.visible = cx > ROOM.minX + 0.30;
+    if (backWallRef.current) backWallRef.current.visible = cz > ROOM.minZ + 0.35;
+    if (curtainRef.current) curtainRef.current.visible = !(cx > 2.48 && cz < 0.45);
+    if (ceilingRef.current) ceilingRef.current.visible = cy < ROOM.height - 0.12;
   });
 
   const H = ROOM.height;
@@ -1361,8 +1217,8 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
 
   return (
     <group>
-      {/* Surrounding floor plane */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.004, 0]} receiveShadow onClick={onFloorClick}>
+      {/* Surrounding floor plane (offset well below vinyl sheet to eliminate z-fighting) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.025, 0]} receiveShadow onClick={onFloorClick}>
         <planeGeometry args={[40, 40]} />
         <meshStandardMaterial color={theme.outerFloor} roughness={0.88} />
       </mesh>
@@ -1388,16 +1244,24 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
       {/* Slate-grey entry threshold strip near doorway / privacy curtain */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[ROOM.minX + 0.65, 0.001, 3.45]}
+        position={[ROOM.minX + 0.65, 0.004, 3.45]}
         receiveShadow
         onClick={onFloorClick}
       >
         <planeGeometry args={[1.3, 1.35]} />
-        <meshStandardMaterial color={theme.threshold} roughness={0.52} />
+        <meshStandardMaterial
+          color={theme.threshold}
+          roughness={0.52}
+          polygonOffset
+          polygonOffsetFactor={-1}
+          polygonOffsetUnits={-1}
+        />
       </mesh>
 
       {/* Suspended 2x2 acoustic ceiling grid + glowing 2x4 LED troffer panels */}
-      <AcousticCeiling theme={theme} night={darkMode} />
+      <group ref={ceilingRef}>
+        <AcousticCeiling theme={theme} night={darkMode} />
+      </group>
 
       {/* BACK (HEAD) WALL */}
       <group ref={backWallRef}>
@@ -1438,9 +1302,9 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
         <SanitizerDispenser />
       </group>
 
-      <PrivacyCurtain theme={theme} />
-      <VolumetricLightShafts night={darkMode} />
-      <AtmosphericDustMotes />
+      <group ref={curtainRef}>
+        <PrivacyCurtain theme={theme} />
+      </group>
     </group>
   );
 }
