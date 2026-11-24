@@ -28,7 +28,7 @@ import { Effect, ToneMappingMode, SMAAPreset } from 'postprocessing';
 import * as THREE from 'three';
 import { live } from '../lib/liveVitals';
 import { SweepMonitor, LOGICAL_W, LOGICAL_H } from '../lib/monitorRenderer';
-import { fitModel, keepHalfGeometry } from '../lib/fitModel';
+import { fitModel, keepHalfGeometry, filterGeometryTriangles } from '../lib/fitModel';
 import { speakPatientCue } from '../utils/clinicalAudio';
 import HospitalRoom, { RoomLighting, ROOM } from './HospitalRoom';
 import AdaptiveQuality, { dprForMode } from './AdaptiveQuality';
@@ -381,6 +381,7 @@ function NurseAvatar3D({
   frozen = false,
   onArrive,
   onDepart,
+  onReachSideRail,
   nurseCue,
 }) {
   const { scene: nurseGltfScene, animations: nurseClips } = useGLTF(NURSE_GLB_URL);
@@ -577,6 +578,7 @@ function NurseAvatar3D({
     st.lookTarget.set(...wp.lookAt);
     st.otsCamGoal.set(...wp.otsCam);
     st.manualWalk = false;
+    st.pendingRailSide = null;
     arrivedRef.current = false;
   }, [cameraFocusId, cameraTrigger, nurseStateRef]);
 
@@ -633,6 +635,7 @@ function NurseAvatar3D({
         onDepart?.();
       }
       st.manualWalk = true;
+      st.pendingRailSide = null;
       st.path = null;
       const len = Math.hypot(moveX, moveZ);
       dirX = moveX / len;
@@ -676,6 +679,18 @@ function NurseAvatar3D({
         const lz = st.lookTarget.z - st.pos.z;
         turnTowards(Math.atan2(lx, lz), 7);
 
+        // Bedside rail arrival: reach out with mocap "ReachMid" and physically raise/lower the rail
+        if (!frozen && st.pendingRailSide) {
+          const railSide = st.pendingRailSide;
+          st.pendingRailSide = null;
+          st.facingRailUntil = t + 2.2;
+          oneShotRef.current.pending = 'ReachMid';
+          oneShotRef.current.pendingAge = 0;
+          setTimeout(() => {
+            onReachSideRail?.(railSide);
+          }, 180);
+        }
+
         // Station arrival: the station panel only opens once the nurse is physically there
         if (
           !frozen &&
@@ -715,21 +730,31 @@ function NurseAvatar3D({
     const isWalking = actualSpeed > 0.08;
     st.isWalking = isWalking;
 
-    // Safety net: if a station walk is blocked by furniture (no real progress for 1.2 s), treat it
-    // as arrived so the station panel can never become unreachable.
-    if (!manualInput && !st.manualWalk && desiredSpeed > 0 && moved < 0.004) {
+    // Safety net: if a station or rail walk is blocked by furniture (no real progress for 1.2 s), treat it
+    // as arrived so the interaction can never become unreachable.
+    if (!manualInput && desiredSpeed > 0 && moved < 0.004) {
       st.stuckT = (st.stuckT || 0) + frameDt;
-      if (
-        st.stuckT > 1.2 &&
-        !frozen &&
-        !arrivedRef.current &&
-        cameraFocusId &&
-        cameraFocusId !== 'overview'
-      ) {
-        st.path = [{ x: st.pos.x, z: st.pos.z }];
-        st.goalPos.set(st.pos.x, 0, st.pos.z);
-        arrivedRef.current = true;
-        onArrive?.(cameraFocusId);
+      if (st.stuckT > 1.2 && !frozen) {
+        if (st.pendingRailSide) {
+          const railSide = st.pendingRailSide;
+          st.pendingRailSide = null;
+          st.path = [{ x: st.pos.x, z: st.pos.z }];
+          st.goalPos.set(st.pos.x, 0, st.pos.z);
+          st.facingRailUntil = t + 2.2;
+          oneShotRef.current.pending = 'ReachMid';
+          oneShotRef.current.pendingAge = 0;
+          setTimeout(() => onReachSideRail?.(railSide), 180);
+        } else if (
+          !st.manualWalk &&
+          !arrivedRef.current &&
+          cameraFocusId &&
+          cameraFocusId !== 'overview'
+        ) {
+          st.path = [{ x: st.pos.x, z: st.pos.z }];
+          st.goalPos.set(st.pos.x, 0, st.pos.z);
+          arrivedRef.current = true;
+          onArrive?.(cameraFocusId);
+        }
       }
     } else {
       st.stuckT = 0;
@@ -751,7 +776,8 @@ function NurseAvatar3D({
     const w = THREE.MathUtils.smoothstep(vs, 0.04, 0.4);
 
     const isAtStation =
-      !isWalking && !st.manualWalk && cameraFocusId && cameraFocusId !== 'overview';
+      (!isWalking && !st.manualWalk && cameraFocusId && cameraFocusId !== 'overview') ||
+      Boolean(!isWalking && st.facingRailUntil && t < st.facingRailUntil);
     reachBlendRef.current = THREE.MathUtils.lerp(
       reachBlendRef.current,
       isAtStation ? 1 : 0,
@@ -1381,9 +1407,154 @@ function makeQuiltedBlanketTexture() {
   return tex;
 }
 
+/**
+ * Interactive 3D Hospital Bed Side Rail extracted directly from `hospital_bed_carlos.glb`.
+ * Starts folded down below the mattress on PACU arrival with zero text spoilers — the student
+ * visually observes the lowered rails and clicks directly on each 3D rail to walk the nurse over,
+ * grab it (`ReachMid`), and swing/lock it up along its four-bar parallelogram hinge linkage.
+ */
+function InteractiveBedSideRail({ side, isUp, geometry, baseMaterial, frozen, onRailClick }) {
+  const railGroupRef = useRef();
+  const armFrontRef = useRef();
+  const armBackRef = useRef();
+  const progressRef = useRef(isUp ? 1 : 0);
+  const [hovered, setHovered] = useState(false);
+  const sideSign = side === 'left' ? 1 : -1;
+
+  const railMaterial = useMemo(() => {
+    const m = baseMaterial ? baseMaterial.clone() : new THREE.MeshStandardMaterial({ color: '#dde3ea' });
+    m.roughness = 0.28;
+    m.metalness = 0.35;
+    return m;
+  }, [baseMaterial]);
+
+  useEffect(() => {
+    if (!hovered) return undefined;
+    document.body.style.cursor = 'pointer';
+    return () => {
+      document.body.style.cursor = 'auto';
+    };
+  }, [hovered]);
+
+  useFrame((_, delta) => {
+    const goal = isUp ? 1 : 0;
+    // Smooth mechanical swing (~0.48s travel)
+    progressRef.current = THREE.MathUtils.damp(progressRef.current, goal, 7.5, Math.min(delta, 0.1));
+    const p = progressRef.current;
+
+    // Four-bar parallelogram linkage kinematics: swings ~84° down & toward foot when stowed
+    const maxSwingRad = 1.46;
+    const theta = (1 - p) * maxSwingRad;
+    const armLen = 0.34;
+    const dy = -armLen * (1 - Math.cos(theta));
+    const dz = armLen * Math.sin(theta) * 0.38;
+    const dx = sideSign * (1 - p) * 0.022;
+
+    if (railGroupRef.current) {
+      railGroupRef.current.position.set(dx, dy, dz);
+    }
+
+    // Subtle metallic sheen highlight only while hovered
+    if (railMaterial.emissive) {
+      railMaterial.emissive.setHex(hovered && !frozen ? 0x2f7a58 : 0x000000);
+      railMaterial.emissiveIntensity = hovered && !frozen ? 0.35 : 0;
+    }
+
+    // Rotate the two stainless-steel swing-arm links connecting frame track -> rail
+    const armRotX = Math.atan2(dz, armLen + dy);
+    if (armFrontRef.current) armFrontRef.current.rotation.x = armRotX;
+    if (armBackRef.current) armBackRef.current.rotation.x = armRotX;
+  });
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (frozen) return;
+    onRailClick?.(side);
+  };
+
+  return (
+    <group>
+      {/* Articulated four-bar stainless-steel pivot arms anchored to the aluminium bed rail track */}
+      {[-0.56, 0.44].map((zPivot, idx) => (
+        <group
+          key={zPivot}
+          ref={idx === 0 ? armBackRef : armFrontRef}
+          position={[sideSign * 0.566, 0.875, zPivot]}
+        >
+          <mesh position={[0, 0.08, 0]} castShadow>
+            <boxGeometry args={[0.014, 0.17, 0.024]} />
+            <meshStandardMaterial color="#94a3b8" metalness={0.82} roughness={0.24} />
+          </mesh>
+          <mesh rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.013, 0.013, 0.024, 12]} />
+            <meshStandardMaterial color="#64748b" metalness={0.85} roughness={0.25} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Moving split side-rail assembly */}
+      <group ref={railGroupRef} position={[sideSign * (isUp ? 0 : 0.022), isUp ? 0 : -0.305, isUp ? 0 : 0.128]}>
+        {geometry && (
+          <mesh
+            geometry={geometry}
+            material={railMaterial}
+            castShadow
+            receiveShadow
+            onClick={handleClick}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              if (!frozen) setHovered(true);
+            }}
+            onPointerOut={() => setHovered(false)}
+          />
+        )}
+
+        {/* Generous invisible hit-box along the entire rail length so clicking between tubes never misses */}
+        <mesh
+          position={[sideSign * 0.577, 1.075, 0]}
+          onClick={handleClick}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            if (!frozen) setHovered(true);
+          }}
+          onPointerOut={() => setHovered(false)}
+        >
+          <boxGeometry args={[0.11, 0.43, 2.34]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+
+        {/* Minimalist contextual action label shown ONLY while pointer hovers directly on the 3D rail */}
+        {hovered && !frozen && (
+          <Html position={[sideSign * 0.58, 1.32, 0]} center zIndexRange={[22, 0]}>
+            <div
+              style={{
+                pointerEvents: 'none',
+                padding: '4px 11px',
+                borderRadius: '999px',
+                background: 'rgba(10, 19, 16, 0.92)',
+                border: '1px solid #6fd1a9',
+                color: '#eaf2ee',
+                fontSize: '11px',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 6px 16px rgba(0,0,0,0.4)',
+              }}
+            >
+              {isUp ? 'Lower side rail' : 'Raise side rail'}
+            </div>
+          </Html>
+        )}
+      </group>
+    </group>
+  );
+}
+
 function HospitalBedGLB({
   bedAngle,
-  sideRailsUp = false,
+  leftRailUp = false,
+  rightRailUp = false,
+  onRailClick,
+  frozen = false,
   bedObj,
   isCompleted,
   isSelected,
@@ -1392,35 +1563,58 @@ function HospitalBedGLB({
   const { scene: bedScene } = useGLTF('/models/hospital_bed_carlos.glb');
   const { scene: pillowScene } = useGLTF('/models/pillow.glb');
   const backrestRef = useRef();
-  const transferRailRef = useRef();
   const quiltTex = useMemo(() => makeQuiltedBlanketTexture(), []);
 
-  const fittedBed = useMemo(
-    () =>
-      fitModel(bedScene, {
-        axis: 'longest-horizontal',
-        target: 2.7,
-        alignLongestToZ: true,
-        lift: 0,
-        onMesh: (m) => {
-          const mat = m.material;
-          if (!mat) return;
-          const name = (mat.name || '').toLowerCase();
-          if (
-            name.includes('steel') ||
-            name.includes('aluminium') ||
-            name.includes('metal')
-          ) {
-            mat.metalness = 0.8;
-            mat.roughness = 0.25;
-          } else if (name.includes('cloth') || name.includes('mattress')) {
-            mat.roughness = 0.9;
-            mat.metalness = 0.0;
-          }
-        },
-      }).object,
-    [bedScene]
-  );
+  const { fittedBed, leftRailGeo, rightRailGeo, railBaseMat } = useMemo(() => {
+    const fitted = fitModel(bedScene, {
+      axis: 'longest-horizontal',
+      target: 2.7,
+      alignLongestToZ: true,
+      lift: 0,
+      onMesh: (m) => {
+        const mat = m.material;
+        if (!mat) return;
+        const name = (mat.name || '').toLowerCase();
+        if (
+          name.includes('steel') ||
+          name.includes('aluminium') ||
+          name.includes('metal')
+        ) {
+          mat.metalness = 0.8;
+          mat.roughness = 0.25;
+        } else if (name.includes('cloth') || name.includes('mattress')) {
+          mat.roughness = 0.9;
+          mat.metalness = 0.0;
+        }
+      },
+    }).object;
+
+    // Extract the Left (+X world) and Right (-X world) split side-rail assemblies from Object_14
+    // while keeping Headboard & Footboard (|cz| < 0.35) fixed on the bed frame.
+    fitted.updateWorldMatrix(true, true);
+    let lGeo = null;
+    let rGeo = null;
+    let baseMat = null;
+    const railNode = fitted.getObjectByName('Object_14');
+    if (railNode && railNode.isMesh && railNode.geometry) {
+      const origGeo = railNode.geometry;
+      baseMat = railNode.material;
+      const headFootGeo = filterGeometryTriangles(origGeo, (_cx, _cy, cz) => Math.abs(cz) < 0.35);
+      lGeo = filterGeometryTriangles(origGeo, (_cx, _cy, cz) => cz >= 0.35);
+      rGeo = filterGeometryTriangles(origGeo, (_cx, _cy, cz) => cz <= -0.35);
+      lGeo.applyMatrix4(railNode.matrixWorld);
+      lGeo.computeVertexNormals();
+      lGeo.computeBoundingBox();
+      lGeo.computeBoundingSphere();
+      rGeo.applyMatrix4(railNode.matrixWorld);
+      rGeo.computeVertexNormals();
+      rGeo.computeBoundingBox();
+      rGeo.computeBoundingSphere();
+      railNode.geometry = headFootGeo;
+    }
+
+    return { fittedBed: fitted, leftRailGeo: lGeo, rightRailGeo: rGeo, railBaseMat: baseMat };
+  }, [bedScene]);
 
   const fittedPillow = useMemo(
     () =>
@@ -1445,14 +1639,6 @@ function HospitalBedGLB({
         backrestRef.current.rotation.x,
         targetRad,
         Math.min(1, delta * 18)
-      );
-    }
-    if (transferRailRef.current) {
-      const targetY = sideRailsUp ? 1.24 : 0.86;
-      transferRailRef.current.position.y = THREE.MathUtils.lerp(
-        transferRailRef.current.position.y,
-        targetY,
-        Math.min(1, delta * 10)
       );
     }
   });
@@ -1545,21 +1731,23 @@ function HospitalBedGLB({
         </group>
       </group>
 
-      {/* Articulating Upper Left Transfer Safety Rail (starts lowered on PACU arrival; locks up when raised) */}
-      <group ref={transferRailRef} position={[0.485, sideRailsUp ? 1.24 : 0.86, -0.36]}>
-        <RoundedBox args={[0.028, 0.24, 0.82]} radius={0.012} castShadow>
-          <meshStandardMaterial color="#e2e8f0" roughness={0.32} metalness={0.35} />
-        </RoundedBox>
-        <mesh position={[0.016, 0.08, 0.34]}>
-          <sphereGeometry args={[0.014, 12, 12]} />
-          <meshStandardMaterial
-            color={sideRailsUp ? '#10b981' : '#f59e0b'}
-            emissive={sideRailsUp ? '#10b981' : '#f59e0b'}
-            emissiveIntensity={1.4}
-            toneMapped={false}
-          />
-        </mesh>
-      </group>
+      {/* Authentic 3D Left & Right Bedside Safety Rails — directly interactive in the simulation */}
+      <InteractiveBedSideRail
+        side="left"
+        isUp={leftRailUp}
+        geometry={leftRailGeo}
+        baseMaterial={railBaseMat}
+        frozen={frozen}
+        onRailClick={onRailClick}
+      />
+      <InteractiveBedSideRail
+        side="right"
+        isUp={rightRailUp}
+        geometry={rightRailGeo}
+        baseMaterial={railBaseMat}
+        frozen={frozen}
+        onRailClick={onRailClick}
+      />
 
       {bedObj && (
         <InteractiveHotspot
@@ -2816,7 +3004,9 @@ export default function Room3D({
   vitals,
   monitorConnected = true,
   bedAngle,
-  sideRailsUp = false,
+  leftRailUp = false,
+  rightRailUp = false,
+  onToggleSideRail,
   o2Device,
   pcaPaused,
   verifiedId,
@@ -2864,6 +3054,8 @@ export default function Room3D({
     st.yaw = Math.PI;
     st.isWalking = false;
     st.manualWalk = false;
+    st.pendingRailSide = null;
+    st.facingRailUntil = 0;
     st.path = null;
     st.pathKey = null;
     st.speed = 0;
@@ -2897,7 +3089,22 @@ export default function Room3D({
     const free = nearestFree(pt.x, pt.z);
     nurseStateRef.current.goalPos.set(free.x, 0, free.z);
     nurseStateRef.current.lookTarget.set(0, 1.15, -0.2);
+    nurseStateRef.current.pendingRailSide = null;
     nurseStateRef.current.manualWalk = true;
+  };
+
+  const handleSideRailClick = (side) => {
+    if (frozen) return;
+    if (selectedObjectId) onNurseDepart?.();
+    const st = nurseStateRef.current;
+    const isLeft = side === 'left';
+    const standX = isLeft ? 0.92 : -0.92;
+    const standZ = isLeft ? -0.02 : 0.52;
+    const free = nearestFree(standX, standZ);
+    st.goalPos.set(free.x, 0, free.z);
+    st.lookTarget.set(isLeft ? 0.48 : -0.48, 1.05, isLeft ? -0.02 : 0.35);
+    st.manualWalk = true;
+    st.pendingRailSide = side;
   };
 
   return (
@@ -2990,6 +3197,7 @@ export default function Room3D({
             frozen={frozen}
             onArrive={onNurseArrive}
             onDepart={onNurseDepart}
+            onReachSideRail={onToggleSideRail}
             nurseCue={nurseCue}
           />
 
@@ -2997,7 +3205,10 @@ export default function Room3D({
             <TrendelenburgTilt bedAngle={bedAngle}>
               <HospitalBedGLB
                 bedAngle={Math.max(0, bedAngle)}
-                sideRailsUp={sideRailsUp}
+                leftRailUp={leftRailUp}
+                rightRailUp={rightRailUp}
+                onRailClick={handleSideRailClick}
+                frozen={frozen}
                 bedObj={getObj('hospital_bed')}
                 {...sel('hospital_bed')}
               />

@@ -405,18 +405,26 @@ export async function POST(request) {
     }
 
     ev = firstEvent(timeline, 'RAISE_SIDE_RAILS');
-    if (ev || sc.side_rails_raised || room.side_rails_up) {
+    const partialRailEv = firstEvent(timeline, 'RAISE_SIDE_RAIL_PARTIAL');
+    if (sc.side_rails_raised || room.side_rails_up) {
       ledger.add(
         'risk_recognition',
         10,
-        'Raised and locked all bed side rails to prevent fall injury in a sedated, hypotensive post-op patient.',
-        ev ? ev.step : null
+        'Visually observed lowered bed rails and raised & locked both bedside safety rails.',
+        ev ? ev.step : partialRailEv ? partialRailEv.step : null
+      );
+    } else if ((sc.rails_raised_count || 0) === 1 || room.left_rail_up || room.right_rail_up) {
+      ledger.add(
+        'risk_recognition',
+        5,
+        'Raised 1 of 2 bedside safety rails; opposite side rail remained lowered.',
+        partialRailEv ? partialRailEv.step : null
       );
     } else {
       ledger.add(
         'risk_recognition',
         0,
-        'Left the upper bed transfer side rail lowered despite opioid sedation and hypotension (fall hazard).'
+        'Left both bedside safety rails lowered despite opioid sedation and hypotension (fall hazard).'
       );
     }
 

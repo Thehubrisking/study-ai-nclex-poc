@@ -85,6 +85,8 @@ const initialClinicalState = () => ({
   monitorConnected: false,
   vitalsDocumented: false,
   verifiedId: false,
+  leftRailUp: false,
+  rightRailUp: false,
   sideRailsUp: false,
   jpAssessed: false,
   gtubeVerified: false,
@@ -428,6 +430,7 @@ export default function StudyAiExamPage() {
         vitals_documented: c.vitalsDocumented,
         wristband_verified: c.verifiedId,
         side_rails_raised: c.sideRailsUp,
+        rails_raised_count: (c.leftRailUp ? 1 : 0) + (c.rightRailUp ? 1 : 0),
         jp_hemorrhage_assessed: c.jpAssessed,
         gtube_verified: c.gtubeVerified,
         crystalloid_bolus_started: c.crystalloidBolus,
@@ -452,6 +455,8 @@ export default function StudyAiExamPage() {
       })),
       final_room_state: {
         bed_angle_deg: c.bedAngle,
+        left_rail_up: c.leftRailUp,
+        right_rail_up: c.rightRailUp,
         side_rails_up: c.sideRailsUp,
         o2_device: c.o2Device,
         pca_paused: c.pcaPaused,
@@ -668,12 +673,39 @@ export default function StudyAiExamPage() {
     recordEvent(opt.event_code, 'iv_pump', opt.label);
   };
 
-  const handleRaiseSideRails = () => {
-    if (clin.sideRailsUp) return;
-    cueNurse('hospital_bed');
-    patch({ sideRailsUp: true });
-    recordEvent('RAISE_SIDE_RAILS', 'hospital_bed', 'All 4 bed side rails raised and locked');
-  };
+  const handleToggleSideRail = useCallback(
+    (side) => {
+      const cur = clinRef.current;
+      const isLeft = side === 'left';
+      const nextVal = !(isLeft ? cur.leftRailUp : cur.rightRailUp);
+      const nextLeft = isLeft ? nextVal : cur.leftRailUp;
+      const nextRight = isLeft ? cur.rightRailUp : nextVal;
+      const bothUp = nextLeft && nextRight;
+      clinicalAudio.playSideRailLatch(nextVal);
+      patch({
+        leftRailUp: nextLeft,
+        rightRailUp: nextRight,
+        sideRailsUp: bothUp,
+      });
+      const sideLabel = isLeft ? 'left' : 'right';
+      if (!nextVal) {
+        recordEvent('LOWER_SIDE_RAIL', 'hospital_bed', `Lowered ${sideLabel} bedside safety rail`);
+      } else if (bothUp) {
+        recordEvent(
+          'RAISE_SIDE_RAILS',
+          'hospital_bed',
+          `Raised & locked ${sideLabel} bedside rail — both side rails now up & locked`
+        );
+      } else {
+        recordEvent(
+          'RAISE_SIDE_RAIL_PARTIAL',
+          'hospital_bed',
+          `Raised & locked ${sideLabel} bedside safety rail (1 of 2 rails up)`
+        );
+      }
+    },
+    [recordEvent]
+  );
 
   const handleSurgicalAction = (act) => {
     cueNurse('surgical_site');
@@ -815,7 +847,9 @@ export default function StudyAiExamPage() {
           vitals={vitals}
           monitorConnected={clin.monitorConnected}
           bedAngle={clin.bedAngle}
-          sideRailsUp={clin.sideRailsUp}
+          leftRailUp={clin.leftRailUp}
+          rightRailUp={clin.rightRailUp}
+          onToggleSideRail={handleToggleSideRail}
           o2Device={clin.o2Device}
           pcaPaused={clin.pcaPaused}
           verifiedId={clin.verifiedId}
@@ -1385,8 +1419,6 @@ export default function StudyAiExamPage() {
                 onPrepareNaloxone={handlePrepareNaloxone}
                 onAdministerNaloxone={handleAdministerNaloxone}
                 bedAngle={clin.bedAngle}
-                sideRailsUp={clin.sideRailsUp}
-                onRaiseSideRails={handleRaiseSideRails}
                 onSetBed={handleSetBed}
                 jpAssessed={clin.jpAssessed}
                 gtubeVerified={clin.gtubeVerified}

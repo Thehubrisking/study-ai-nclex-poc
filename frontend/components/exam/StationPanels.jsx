@@ -508,53 +508,10 @@ export default function StationPanelBody(props) {
     );
   }
 
-  /* ---------- 4. BED & SIDE RAILS ---------- */
+  /* ---------- 4. HOSPITAL BED ARTICULATION ---------- */
   if (stationId === 'hospital_bed') {
-    const bs = ex.bed_safety;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {bs && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div
-              style={{
-                fontSize: '11.5px',
-                fontWeight: 800,
-                color: tk.section,
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-              }}
-            >
-              BED SAFETY · SIDE RAILS
-            </div>
-            {props.sideRailsUp ? (
-              <Note tk={tk} icon={ShieldCheck}>
-                {bs.rails_raised_label}
-              </Note>
-            ) : (
-              <>
-                <div
-                  className={tk.sub}
-                  style={{
-                    padding: '10px 13px',
-                    borderRadius: '12px',
-                    fontSize: '12.5px',
-                    lineHeight: 1.5,
-                    color: '#f2a493',
-                    borderLeft: '3px solid #ee8572',
-                  }}
-                >
-                  {bs.rails_down_warning}
-                </div>
-                <OptionButton tk={tk} selected onClick={props.onRaiseSideRails}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <ShieldAlert size={15} color="#6fd1a9" /> {bs.raise_rails_label}
-                  </span>
-                </OptionButton>
-              </>
-            )}
-          </div>
-        )}
-
         <div
           style={{
             fontSize: '11.5px',

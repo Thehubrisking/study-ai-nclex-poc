@@ -192,6 +192,52 @@ class ClinicalAudioEngine {
     osc2.stop(now + duration + 0.02);
   }
 
+  /**
+   * Mechanical tubular side-rail swing + dual-stage spring safety-latch click
+   * when the nurse raises or lowers a hospital bed rail in 3D.
+   */
+  playSideRailLatch(raising = true) {
+    if (this.muted) return;
+    const ctx = this._ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    // 1. Soft brushed-aluminium hinge slide (0 -> 380ms)
+    const slideOsc = ctx.createOscillator();
+    const slideGain = ctx.createGain();
+    const slideFilter = ctx.createBiquadFilter();
+    slideOsc.type = 'triangle';
+    slideOsc.frequency.setValueAtTime(raising ? 140 : 210, now);
+    slideOsc.frequency.exponentialRampToValueAtTime(raising ? 245 : 125, now + 0.36);
+    slideFilter.type = 'bandpass';
+    slideFilter.frequency.setValueAtTime(340, now);
+    slideGain.gain.setValueAtTime(0.0001, now);
+    slideGain.gain.linearRampToValueAtTime(0.038, now + 0.05);
+    slideGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+    slideOsc.connect(slideFilter);
+    slideFilter.connect(slideGain);
+    slideGain.connect(ctx.destination);
+    slideOsc.start(now);
+    slideOsc.stop(now + 0.4);
+
+    // 2. Crisp metallic spring-pin lock click at end of travel (~410ms when raising, ~60ms unlatch when lowering)
+    const clickTime = raising ? now + 0.41 : now + 0.04;
+    [raising ? 1180 : 820, raising ? 1640 : 620].forEach((freq, idx) => {
+      const t0 = clickTime + idx * 0.038;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.05, t0 + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.032);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.036);
+    });
+  }
+
   startLoops() {
     this.stopLoops();
     this._running = true;

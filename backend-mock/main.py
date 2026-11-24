@@ -397,10 +397,27 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         ledger.add("risk_recognition", 0, "Never verified patient identity.")
 
     ev = first_event(timeline, "RAISE_SIDE_RAILS")
-    if ev or sc.get("side_rails_raised") or room.get("side_rails_up"):
-        ledger.add("risk_recognition", 10, "Raised and locked all bed side rails to prevent fall injury in a sedated, hypotensive post-op patient.", ev.get("step") if ev else None)
+    partial_rail_ev = first_event(timeline, "RAISE_SIDE_RAIL_PARTIAL")
+    if sc.get("side_rails_raised") or room.get("side_rails_up"):
+        ledger.add(
+            "risk_recognition",
+            10,
+            "Visually observed lowered bed rails and raised & locked both bedside safety rails.",
+            ev.get("step") if ev else (partial_rail_ev.get("step") if partial_rail_ev else None),
+        )
+    elif sc.get("rails_raised_count") == 1 or room.get("left_rail_up") or room.get("right_rail_up"):
+        ledger.add(
+            "risk_recognition",
+            5,
+            "Raised 1 of 2 bedside safety rails; opposite side rail remained lowered.",
+            partial_rail_ev.get("step") if partial_rail_ev else None,
+        )
     else:
-        ledger.add("risk_recognition", 0, "Left the upper bed transfer side rail lowered despite opioid sedation and hypotension (fall hazard).")
+        ledger.add(
+            "risk_recognition",
+            0,
+            "Left both bedside safety rails lowered despite opioid sedation and hypotension (fall hazard).",
+        )
 
     ev = first_event(timeline, "FLAG_ALLERGY")
     if ev:

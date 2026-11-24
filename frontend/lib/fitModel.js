@@ -79,3 +79,39 @@ export function keepHalfGeometry(geo, keepPositive = true) {
   out.computeBoundingSphere();
   return out;
 }
+
+/**
+ * Filters a BufferGeometry by a predicate `(cx, cy, cz)` evaluated on each
+ * triangle's local-space centroid (used to split hospital_bed_carlos.glb's
+ * side rails away from the headboard/footboard so each rail animates independently).
+ */
+export function filterGeometryTriangles(geo, predicate) {
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
+  const pos = g.attributes.position;
+  const nor = g.attributes.normal;
+  const uv = g.attributes.uv;
+  const P = [];
+  const N = [];
+  const U = [];
+
+  for (let t = 0; t < pos.count; t += 3) {
+    const cx = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3;
+    const cy = (pos.getY(t) + pos.getY(t + 1) + pos.getY(t + 2)) / 3;
+    const cz = (pos.getZ(t) + pos.getZ(t + 1) + pos.getZ(t + 2)) / 3;
+    if (predicate(cx, cy, cz)) {
+      for (let k = 0; k < 3; k++) {
+        P.push(pos.getX(t + k), pos.getY(t + k), pos.getZ(t + k));
+        if (nor) N.push(nor.getX(t + k), nor.getY(t + k), nor.getZ(t + k));
+        if (uv) U.push(uv.getX(t + k), uv.getY(t + k));
+      }
+    }
+  }
+
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  if (nor) out.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  if (uv) out.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}

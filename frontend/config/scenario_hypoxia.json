@@ -55,7 +55,7 @@
     "gender": "Male",
     "mrn": "MRN-884920",
     "surgical_history": "4 hours post-abdominal exploratory laparotomy with gastrostomy tube & right lower quadrant JP drain",
-    "presenting_status": "Drowsy, pale skin (pallor), cool clammy forehead (diaphoresis), shallow slow respirations; left bed rail lowered from transfer; midline abdominal gauze, JP bulb drain, and gastrostomy tube in place"
+    "presenting_status": "Drowsy, pale skin (pallor), cool clammy forehead (diaphoresis), shallow slow respirations; midline abdominal gauze, JP bulb drain, and gastrostomy tube in place"
   },
   "patient_verbal_cues": {
     "admission_arrival": "Nurse... just got back from recovery... my belly feels warm and wet under the bandage, and I feel so dizzy and sleepy...",
@@ -121,7 +121,7 @@
       "bedside_monitor": "Bedside Monitor",
       "wristband": "Patient Wrist",
       "ehr_tablet": "EHR Workstation",
-      "hospital_bed": "Bed & Side Rails",
+      "hospital_bed": "Hospital Bed",
       "surgical_site": "Surgical Dressing & Drains",
       "wall_oxygen": "Wall Gas Outlet",
       "iv_pump": "IV Infusion Pump"
@@ -467,9 +467,19 @@
         "rationale": "Two-identifier verification (Name + DOB) is required before any medication or clinical intervention."
       },
       "RAISE_SIDE_RAILS": {
-        "label": "Raised and locked all bed side rails",
+        "label": "Observed lowered bed rails & raised both bedside safety rails",
         "classification": "CORRECT",
-        "rationale": "Sedated post-operative patients receiving opioid analgesia are at high risk for falls; raising all side rails is a mandatory safety check."
+        "rationale": "Sedated post-operative patients receiving opioid analgesia are at high risk for falls; observing and raising both lowered bedside rails is a mandatory safety check."
+      },
+      "RAISE_SIDE_RAIL_PARTIAL": {
+        "label": "Raised one bedside safety rail (1 of 2 rails up)",
+        "classification": "CORRECT",
+        "rationale": "Raising the bedside rail reduces fall risk; ensure both left and right side rails are raised and locked."
+      },
+      "LOWER_SIDE_RAIL": {
+        "label": "Lowered bedside safety rail",
+        "classification": "NEUTRAL",
+        "rationale": "Leaving a side rail lowered in a drowsy, hypotensive opioid-PCA patient increases fall risk."
       },
       "ASSESS_JP_HEMORRHAGE": {
         "label": "Measured JP drain (135 mL/hr sanguineous), re-compressed bulb, reinforced dressing & flagged hemorrhage",
@@ -873,7 +883,7 @@
     },
     {
       "id": "hospital_bed",
-      "label": "Bed Side Rails & Head-of-Bed Articulation",
+      "label": "Hospital Bed (Head-of-Bed Articulation)",
       "surface": "3D_ROOM_CONTROL",
       "diagnostic_domain": "prioritisation",
       "ncjmm_phase": "TAKE_ACTION"
