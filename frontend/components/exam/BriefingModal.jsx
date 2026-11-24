@@ -394,12 +394,12 @@ export default function BriefingModal({ scenario, onBegin }) {
     {
       num: '1',
       title: 'Read the chart',
-      body: 'Orders, MAR, allergies, labs and PACU handoff notes are one click away — review them before intervening.',
+      body: 'Orders, MAR, allergies, labs and handoff notes are one click away — review them before intervening.',
     },
     {
       num: '2',
       title: 'Assess and act',
-      body: 'Click into the 3D room to walk to bedside stations, verify ID, power on telemetry, and act in clinical priority order.',
+      body: 'Walk to bedside stations, verify ID, check bed rails, power on telemetry, inspect the abdomen, and act in priority order.',
     },
     {
       num: '3',
@@ -410,7 +410,7 @@ export default function BriefingModal({ scenario, onBegin }) {
 
   const stats = [
     { value: '1', label: 'patient scenario' },
-    { value: '6', label: 'bedside stations' },
+    { value: String(ex.walk_bar_order?.length || 7), label: 'bedside stations' },
     { value: formatClock(ex.duration_sec), label: 'timed window' },
   ];
 
@@ -736,8 +736,7 @@ export default function BriefingModal({ scenario, onBegin }) {
               marginTop: '8px',
             }}
           >
-            Arriving from PACU post-{p.surgical_history.toLowerCase()}. Morphine PCA infusing;
-            bedside monitor is currently in standby and you are taking over his care.
+            {b.candidate_instructions}
           </p>
 
           {/* Compact Clinical Identifiers */}

@@ -159,7 +159,6 @@ export default function StationPanelBody(props) {
   const { stationId, scenario, darkMode } = props;
   const tk = useTokens(darkMode);
   const ex = scenario.exam_config;
-  const [surgicalMediaTab, setSurgicalMediaTab] = useState('jp_dressing');
   const [cinemaVideoOpen, setCinemaVideoOpen] = useState(false);
 
   const stationQuestion = ex.station_questions?.[stationId] || null;
@@ -472,17 +471,18 @@ export default function StationPanelBody(props) {
                 </span>
               </OptionButton>
             )}
-            {props.naloxonePrepared ? (
-              <Note tk={tk} icon={Syringe}>
-                {m.naloxone.prepared_label}
-              </Note>
-            ) : (
-              <OptionButton tk={tk} onClick={props.onPrepareNaloxone}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Syringe size={14} color="#6fd1a9" /> {m.naloxone.label}
-                </span>
-              </OptionButton>
-            )}
+            {m.naloxone &&
+              (props.naloxonePrepared ? (
+                <Note tk={tk} icon={Syringe}>
+                  {m.naloxone.prepared_label}
+                </Note>
+              ) : (
+                <OptionButton tk={tk} onClick={props.onPrepareNaloxone}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Syringe size={14} color="#6fd1a9" /> {m.naloxone.label}
+                  </span>
+                </OptionButton>
+              ))}
           </div>
         )}
 
@@ -542,249 +542,187 @@ export default function StationPanelBody(props) {
     );
   }
 
-  /* ---------- 5. SURGICAL DRESSING, JP DRAIN & G-TUBE ---------- */
+  /* ---------- 5. ABDOMINAL ASSESSMENT (SPOILER-FREE LIVE VIDEO) ---------- */
   if (stationId === 'surgical_site') {
     const ss = ex.surgical_site;
     if (!ss) return null;
-    const mediaTabs = ss.media_tabs || [];
-    const activeMedia = mediaTabs.find((m) => m.id === surgicalMediaTab) || mediaTabs[0];
+    const activeVideoUrl =
+      props.jpAssessed && ss.treated_video_url ? ss.treated_video_url : ss.video_url;
+    const chosenIds = props.surgicalChosenIds || [];
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* Clinical Visual / Media Switcher (JP Drain & Dressing vs. Fig 31-2 Dehiscence/Evisceration) */}
-        {mediaTabs.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {/* Live Bedside Abdominal Video — Nurse observes & identifies the condition directly */}
+        {activeVideoUrl && (
+          <div
+            style={{
+              position: 'relative',
+              borderRadius: '14px',
+              overflow: 'hidden',
+              border: `1px solid ${tk.border}`,
+              background: '#0a1310',
+            }}
+          >
+            <div style={{ position: 'relative', background: '#050a08' }}>
+              <video
+                key={activeVideoUrl}
+                src={activeVideoUrl}
+                poster={ss.poster_url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                controls
+                style={{
+                  width: '100%',
+                  maxHeight: '215px',
+                  objectFit: 'cover',
+                  display: 'block',
+                  background: '#050a08',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setCinemaVideoOpen(true)}
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  padding: '4px 10px',
+                  borderRadius: '999px',
+                  background: 'rgba(10, 19, 16, 0.86)',
+                  border: '1px solid #6fd1a9',
+                  color: '#eaf2ee',
+                  fontSize: '10.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  backdropFilter: 'blur(6px)',
+                }}
+              >
+                ⤢ Expand clip
+              </button>
+            </div>
             <div
               style={{
-                display: 'flex',
-                gap: '4px',
-                padding: '3px',
-                borderRadius: '999px',
-                background: darkMode ? '#0a1310' : '#f1f3ee',
-                border: darkMode ? '1px solid #1d2e27' : '1px solid #e7eae3',
+                padding: '8px 12px',
+                fontSize: '11.5px',
+                lineHeight: 1.45,
+                color: '#afc6bc',
               }}
             >
-              {mediaTabs.map((mt) => {
-                const active = activeMedia?.id === mt.id;
-                return (
+              {ss.caption}
+            </div>
+          </div>
+        )}
+
+        {cinemaVideoOpen &&
+          activeVideoUrl &&
+          typeof document !== 'undefined' &&
+          createPortal(
+            <div
+              onClick={() => setCinemaVideoOpen(false)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 9999,
+                background: 'rgba(5, 11, 9, 0.86)',
+                backdropFilter: 'blur(10px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px',
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: 'min(860px, 94vw)',
+                  borderRadius: '20px',
+                  overflow: 'hidden',
+                  background: '#0a1310',
+                  border: '1.5px solid #2a4136',
+                  boxShadow: '0 24px 64px rgba(0, 0, 0, 0.65)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 18px',
+                    borderBottom: '1px solid #1d2e27',
+                  }}
+                >
+                  <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#eaf2ee' }}>
+                    Abdominal Assessment — Bedside View
+                  </span>
                   <button
-                    key={mt.id}
                     type="button"
-                    onClick={() => setSurgicalMediaTab(mt.id)}
+                    onClick={() => setCinemaVideoOpen(false)}
                     style={{
-                      flex: 1,
-                      padding: '6px 10px',
+                      padding: '4px 12px',
                       borderRadius: '999px',
-                      background: active ? (darkMode ? '#1e3a2f' : '#1e4a38') : 'transparent',
-                      color: active ? '#ffffff' : tk.muted,
-                      border: 'none',
+                      background: '#143528',
+                      border: '1px solid #6fd1a9',
+                      color: '#eaf2ee',
                       fontSize: '11.5px',
                       fontWeight: 700,
                       cursor: 'pointer',
                     }}
                   >
-                    {mt.label}
+                    Close ✕
                   </button>
-                );
-              })}
-            </div>
-
-            {activeMedia && (
-              <div
-                style={{
-                  position: 'relative',
-                  borderRadius: '14px',
-                  overflow: 'hidden',
-                  border: `1px solid ${tk.border}`,
-                  background: '#0a1310',
-                }}
-              >
-                {activeMedia.video_url ? (
-                  <div style={{ position: 'relative', background: '#050a08' }}>
-                    <video
-                      key={activeMedia.video_url}
-                      src={activeMedia.video_url}
-                      poster={activeMedia.poster_url}
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      controls
-                      style={{
-                        width: '100%',
-                        maxHeight: '215px',
-                        objectFit: 'cover',
-                        display: 'block',
-                        background: '#050a08',
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setCinemaVideoOpen(true)}
-                      style={{
-                        position: 'absolute',
-                        top: '8px',
-                        right: '8px',
-                        padding: '4px 10px',
-                        borderRadius: '999px',
-                        background: 'rgba(10, 19, 16, 0.86)',
-                        border: '1px solid #6fd1a9',
-                        color: '#eaf2ee',
-                        fontSize: '10.5px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        backdropFilter: 'blur(6px)',
-                      }}
-                    >
-                      ⤢ Expand clip
-                    </button>
-                  </div>
-                ) : (
-                  <img
-                    src={activeMedia.image_url || activeMedia.poster_url}
-                    alt={activeMedia.label}
-                    style={{
-                      width: '100%',
-                      maxHeight: '195px',
-                      objectFit: 'contain',
-                      display: 'block',
-                      background: '#f8fafc',
-                    }}
-                  />
-                )}
+                </div>
+                <video
+                  key={`cinema-${activeVideoUrl}`}
+                  src={activeVideoUrl}
+                  poster={ss.poster_url}
+                  autoPlay
+                  loop
+                  muted
+                  controls
+                  playsInline
+                  style={{ width: '100%', maxHeight: '72vh', display: 'block', background: '#000' }}
+                />
                 <div
                   style={{
-                    padding: '9px 12px',
-                    fontSize: '11.5px',
-                    lineHeight: 1.45,
+                    padding: '12px 18px',
+                    fontSize: '12.5px',
                     color: '#afc6bc',
+                    lineHeight: 1.5,
                   }}
                 >
-                  {activeMedia.caption}
+                  {ss.caption}
                 </div>
               </div>
-            )}
+            </div>,
+            document.body
+          )}
 
-            {cinemaVideoOpen &&
-              activeMedia?.video_url &&
-              typeof document !== 'undefined' &&
-              createPortal(
-                <div
-                  onClick={() => setCinemaVideoOpen(false)}
-                  style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 9999,
-                    background: 'rgba(5, 11, 9, 0.86)',
-                    backdropFilter: 'blur(10px)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '24px',
-                  }}
-                >
-                  <div
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      width: 'min(860px, 94vw)',
-                      borderRadius: '20px',
-                      overflow: 'hidden',
-                      background: '#0a1310',
-                      border: '1.5px solid #2a4136',
-                      boxShadow: '0 24px 64px rgba(0, 0, 0, 0.65)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '12px 18px',
-                        borderBottom: '1px solid #1d2e27',
-                      }}
-                    >
-                      <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#eaf2ee' }}>
-                        {activeMedia.label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setCinemaVideoOpen(false)}
-                        style={{
-                          padding: '4px 12px',
-                          borderRadius: '999px',
-                          background: '#143528',
-                          border: '1px solid #6fd1a9',
-                          color: '#eaf2ee',
-                          fontSize: '11.5px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Close ✕
-                      </button>
-                    </div>
-                    <video
-                      key={`cinema-${activeMedia.video_url}`}
-                      src={activeMedia.video_url}
-                      poster={activeMedia.poster_url}
-                      autoPlay
-                      loop
-                      muted
-                      controls
-                      playsInline
-                      style={{ width: '100%', maxHeight: '72vh', display: 'block', background: '#000' }}
-                    />
-                    <div
-                      style={{
-                        padding: '12px 18px',
-                        fontSize: '12.5px',
-                        color: '#afc6bc',
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {activeMedia.caption}
-                    </div>
-                  </div>
-                </div>,
-                document.body
-              )}
-          </div>
+        {/* Objective post-action measurement note (only shown AFTER nurse performs action) */}
+        {props.jpAssessed && ss.measured_output_note && (
+          <Note tk={tk} icon={CheckCircle2}>
+            {ss.measured_output_note}
+          </Note>
         )}
 
-        {/* Bedside Surgical Inspection Readout */}
         <div
-          className={tk.sub}
           style={{
-            padding: '12px 14px',
-            borderRadius: '14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '7px',
-            fontSize: '12.5px',
-            lineHeight: 1.5,
+            fontSize: '11px',
+            fontWeight: 800,
+            letterSpacing: '0.05em',
+            color: tk.section,
+            textTransform: 'uppercase',
           }}
         >
-          <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.06em', color: tk.section }}>
-            {ss.dressing_title}
-          </div>
-          <div>
-            <strong style={{ color: '#f2a493' }}>Incision Gauze: </strong>
-            {ss.dressing_finding}
-          </div>
-          <div>
-            <strong style={{ color: '#e8b04b' }}>JP Bulb Drain (RLQ): </strong>
-            {ss.jp_finding}
-          </div>
-          <div>
-            <strong style={{ color: '#bfe8d6' }}>G-Tube (LUQ): </strong>
-            {ss.gtube_finding}
-          </div>
+          BEDSIDE INTERVENTIONS
         </div>
 
-        {/* Nursing Actions at Surgical Site */}
+        {/* Neutral Nursing Actions at Abdominal Site */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
           {ss.actions.map((act) => {
             const done =
+              chosenIds.includes(act.id) ||
               (act.event_code === 'ASSESS_JP_HEMORRHAGE' && props.jpAssessed) ||
               (act.event_code === 'VERIFY_GTUBE' && props.gtubeVerified) ||
               (act.event_code === 'REMOVE_PRIMARY_DRESSING_TRAP' && props.primaryDressingRemoved);

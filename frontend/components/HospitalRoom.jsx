@@ -305,7 +305,7 @@ function makeCurtainMeshTexture() {
 
 /* ---------------- Small building blocks ---------------- */
 
-function Slab({ args, position, rotation, color, roughness = 0.88, metalness = 0, cast = true }) {
+function Slab({ args, position, rotation, color, roughness = 0.88, metalness = 0, cast = false }) {
   return (
     <mesh position={position} rotation={rotation} castShadow={cast} receiveShadow>
       <boxGeometry args={args} />
@@ -609,14 +609,13 @@ function PictureWindow({ theme }) {
       {/* Architectural insulated glazing reflection */}
       <mesh position={[fx + 0.012, yc, zc]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[wz, hy]} />
-        <meshPhysicalMaterial
+        <meshStandardMaterial
           color="#bfdbfe"
           transparent
           opacity={0.14}
-          roughness={0.04}
-          metalness={0.05}
-          clearcoat={1}
-          envMapIntensity={1.35}
+          roughness={0.08}
+          metalness={0.1}
+          envMapIntensity={1.2}
           depthWrite={false}
         />
       </mesh>
@@ -750,10 +749,10 @@ function WindowSideLounge({ theme, night }) {
         <RoundedBox args={[0.38, 0.38, 0.38]} radius={0.015} position={[0, 0.19, 0]} castShadow>
           <meshStandardMaterial color={theme.oak} roughness={0.5} />
         </RoundedBox>
-        {/* Clear glass vase (uses alpha transparency instead of transmission to prevent 800k-tri double pass) */}
-        <mesh position={[0, 0.47, 0]} castShadow>
-          <cylinderGeometry args={[0.055, 0.042, 0.18, 18]} />
-          <meshPhysicalMaterial
+        {/* Clear glass vase */}
+        <mesh position={[0, 0.47, 0]}>
+          <cylinderGeometry args={[0.055, 0.042, 0.18, 16]} />
+          <meshStandardMaterial
             color="#d1fae5"
             transparent
             opacity={0.52}
@@ -770,8 +769,8 @@ function WindowSideLounge({ theme, night }) {
           [-0.03, 0.58, 0.04, '#15803d', 0.042],
           [0.04, 0.57, -0.03, '#166534', 0.04],
         ].map(([bx, by, bz, col, r], i) => (
-          <mesh key={i} position={[bx, by, bz]} castShadow>
-            <sphereGeometry args={[r, 12, 10]} />
+          <mesh key={i} position={[bx, by, bz]}>
+            <sphereGeometry args={[r, 10, 8]} />
             <meshStandardMaterial color={col} roughness={0.75} />
           </mesh>
         ))}
@@ -855,7 +854,7 @@ function EntryDoor({ theme }) {
       {/* Vision panel */}
       <mesh position={[x + 0.048, 1.45, zc - 0.18]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[0.16, 0.6]} />
-        <meshPhysicalMaterial color="#bfdbfe" roughness={0.1} transparent opacity={0.55} />
+        <meshStandardMaterial color="#bfdbfe" roughness={0.14} transparent opacity={0.55} />
       </mesh>
       {/* Lever handle */}
       <group position={[x + 0.07, 1.05, DOOR.z1 - 0.1]}>
@@ -962,12 +961,12 @@ function CareWhiteboard() {
   ];
   return (
     <group position={[-2.35, 1.65, ROOM.minZ + 0.015]}>
-      <RoundedBox args={[0.96, 0.66, 0.022]} radius={0.01} castShadow>
+      <RoundedBox args={[0.96, 0.66, 0.022]} radius={0.01}>
         <meshStandardMaterial {...ALUMINUM} />
       </RoundedBox>
       <mesh position={[0, 0, 0.013]}>
         <planeGeometry args={[0.9, 0.6]} />
-        <meshPhysicalMaterial color="#ffffff" roughness={0.15} clearcoat={0.6} />
+        <meshStandardMaterial color="#ffffff" roughness={0.18} />
       </mesh>
       <mesh position={[0, 0.25, 0.014]}>
         <planeGeometry args={[0.9, 0.07]} />
@@ -1041,7 +1040,7 @@ function PrivacyCurtain({ theme }) {
   const meshTex = useMemo(() => makeCurtainMeshTexture(), []);
 
   const makeFolded = (h, segsY) => {
-    const geo = new THREE.PlaneGeometry(length, h, 120, segsY);
+    const geo = new THREE.PlaneGeometry(length, h, 48, segsY);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const u = pos.getX(i);
@@ -1053,8 +1052,8 @@ function PrivacyCurtain({ theme }) {
     geo.computeVertexNormals();
     return geo;
   };
-  const fabricGeo = useMemo(() => makeFolded(fabricH, 6), []);
-  const meshGeo = useMemo(() => makeFolded(meshH, 2), []);
+  const fabricGeo = useMemo(() => makeFolded(fabricH, 3), []);
+  const meshGeo = useMemo(() => makeFolded(meshH, 1), []);
 
   return (
     <group>
@@ -1077,13 +1076,10 @@ function PrivacyCurtain({ theme }) {
           />
         </mesh>
         {/* Deep pleated slate-grey/blue hospital curtain fabric */}
-        <mesh geometry={fabricGeo} position={[0, trackY - meshH - fabricH / 2 - 0.02, 0]} castShadow receiveShadow>
-          <meshPhysicalMaterial
+        <mesh geometry={fabricGeo} position={[0, trackY - meshH - fabricH / 2 - 0.02, 0]} receiveShadow>
+          <meshStandardMaterial
             color={theme.curtain}
-            roughness={0.82}
-            sheen={0.85}
-            sheenRoughness={0.55}
-            sheenColor="#cbd5e1"
+            roughness={0.84}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -1097,14 +1093,13 @@ function PrivacyCurtain({ theme }) {
 export function RoomLighting({ darkMode = false }) {
   const trofferTarget = useMemo(() => new THREE.Object3D(), []);
   const windowTarget = useMemo(() => new THREE.Object3D(), []);
-  const coveTarget = useMemo(() => new THREE.Object3D(), []);
 
   useLayoutEffect(() => {
     trofferTarget.position.set(0.05, 0.75, 0.05);
-    windowTarget.position.set(0.2, 0.4, 1.1);
-    coveTarget.position.set(0.1, 1.15, ROOM.minZ + 0.15);
-    [trofferTarget, windowTarget, coveTarget].forEach((o) => o.updateMatrixWorld());
-  }, [trofferTarget, windowTarget, coveTarget]);
+    windowTarget.position.set(0.4, 0.6, 0.6);
+    trofferTarget.updateMatrixWorld();
+    windowTarget.updateMatrixWorld();
+  }, [trofferTarget, windowTarget]);
 
   const night = darkMode;
 
@@ -1112,69 +1107,49 @@ export function RoomLighting({ darkMode = false }) {
     <>
       <primitive object={trofferTarget} />
       <primitive object={windowTarget} />
-      <primitive object={coveTarget} />
 
-      {/* Restrained ambient & hemisphere fill so shadows retain RDR2-style chiaroscuro depth */}
+      {/* Warm hospital ceiling + floor bounce fill */}
       <hemisphereLight
         args={[
-          '#fff6e5',
-          '#786852',
-          night ? 0.36 : 0.44,
+          '#fff8eb',
+          '#94826b',
+          night ? 0.78 : 0.92,
         ]}
       />
-      <ambientLight intensity={night ? 0.06 : 0.08} color="#ffedd5" />
+      <ambientLight intensity={night ? 0.22 : 0.28} color="#fff1dc" />
 
-      {/* Main overhead 2x4 LED troffer key light (casts crisp, grounded shadows onto the warm vinyl floor) */}
+      {/* Main overhead 2x4 LED troffer key light (single crisp 1024x1024 shadow map) */}
       <directionalLight
         target={trofferTarget}
         position={[0.65, 4.4, 1.35]}
         color="#ffefd6"
-        intensity={night ? 2.45 : 2.65}
+        intensity={night ? 2.65 : 2.85}
         castShadow
         shadow-mapSize={[1024, 1024]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.03}
         shadow-camera-near={1}
-        shadow-camera-far={16}
-        shadow-camera-left={-4.8}
-        shadow-camera-right={4.8}
-        shadow-camera-top={4.8}
-        shadow-camera-bottom={-4.8}
+        shadow-camera-far={14}
+        shadow-camera-left={-4.2}
+        shadow-camera-right={4.2}
+        shadow-camera-top={4.2}
+        shadow-camera-bottom={-4.2}
       />
 
-      {/* Cool twilight blue-hour directional beam entering through the left picture window */}
-      <spotLight
+      {/* Cool twilight blue-hour directional fill entering through the left picture window */}
+      <directionalLight
         target={windowTarget}
-        position={[-4.2, 2.15, 1.55]}
-        angle={0.88}
-        penumbra={0.92}
-        intensity={night ? 7.2 : 8.5}
+        position={[-4.2, 2.25, 1.55]}
+        intensity={night ? 0.85 : 1.05}
         color="#60a5fa"
-        decay={2}
       />
 
-      {/* Recessed headwall soffit cove wash + over-bed warm amber rim wash */}
-      <spotLight
-        target={coveTarget}
-        position={[0.1, 2.42, ROOM.minZ + 0.35]}
-        angle={1.05}
-        penumbra={1}
-        intensity={night ? 6.8 : 5.4}
+      {/* Recessed headwall soffit warm amber cove wash */}
+      <pointLight
+        position={[0.1, 2.35, ROOM.minZ + 0.45]}
+        intensity={night ? 3.8 : 3.2}
+        distance={5.5}
         color="#fcd34d"
-        decay={2}
-      />
-
-      {/* Warm frosted wall sconce pool & subtle corridor kick light */}
-      <pointLight
-        position={[ROOM.minX + 0.28, 1.68, 0.22]}
-        intensity={night ? 3.2 : 2.4}
-        color="#fdba74"
-        decay={2}
-      />
-      <pointLight
-        position={[1.75, 2.65, 1.85]}
-        intensity={night ? 1.65 : 1.95}
-        color="#ffedd5"
         decay={2}
       />
     </>
@@ -1231,13 +1206,12 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
         onClick={onFloorClick}
       >
         <planeGeometry args={[roomW, roomD]} />
-        <meshPhysicalMaterial
+        <meshStandardMaterial
           map={floorTex}
           color="#ffffff"
-          roughness={0.36}
-          clearcoat={0.28}
-          clearcoatRoughness={0.28}
-          envMapIntensity={0.65}
+          roughness={0.34}
+          metalness={0.04}
+          envMapIntensity={0.6}
         />
       </mesh>
 

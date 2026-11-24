@@ -98,7 +98,7 @@
     "conclude_button_short_label": "Escalate (SBAR)",
     "conclude_confirm": {
       "title": "Conclude bedside care?",
-      "body": "You will leave the room and proceed to 4 post-simulation NCLEX clinical escalation questions.",
+      "body": "You will leave the room and proceed to 3 post-simulation NCLEX clinical escalation questions.",
       "confirm_label": "Continue to exit questions",
       "cancel_label": "Return to bedside"
     },
@@ -122,7 +122,7 @@
       "wristband": "Patient Wrist",
       "ehr_tablet": "EHR Workstation",
       "hospital_bed": "Hospital Bed",
-      "surgical_site": "Surgical Dressing & Drains",
+      "surgical_site": "Abdominal Assessment",
       "wall_oxygen": "Wall Gas Outlet",
       "iv_pump": "IV Infusion Pump"
     },
@@ -143,41 +143,30 @@
       "rails_raised_label": "All 4 side rails raised & locked — fall precaution verified"
     },
     "surgical_site": {
-      "dressing_title": "MIDLINE LAPAROTOMY DRESSING, JP DRAIN & G-TUBE",
-      "dressing_finding": "Midline abdominal gauze has an expanding 6 cm bright-red sanguineous strikethrough spot. Surrounding skin is pale, cool, and diaphoretic.",
-      "jp_finding": "Jackson-Pratt (JP) bulb drain (RLQ): 135 mL bright-red sanguineous blood collected over the past hour (bulb nearly full / expanded, losing suction).",
-      "gtube_finding": "Gastrostomy tube (LUQ): Square hydrocolloid exit-site dressing clean and dry; tube patent with 40 mL greenish-bilious gastric return.",
-      "media_tabs": [
-        {
-          "id": "jp_dressing",
-          "label": "JP Drain & Dressing (Live Clip)",
-          "video_url": "/clinical-media/jp_drain_hemorrhage.mp4?v=omni1",
-          "poster_url": "/clinical-media/jp_abdomen_poster.jpg?v=omni1",
-          "caption": "Bedside Abdominal View: Midline laparotomy gauze with bright-red sanguineous strikethrough, LUQ gastrostomy wafer, and RLQ Jackson-Pratt bulb drain (>100 mL/hr sanguineous output)."
-        },
-        {
-          "id": "wound_complications",
-          "label": "Dehiscence & Evisceration (Live Clip)",
-          "video_url": "/clinical-media/wound_dehiscence_evisceration.mp4?v=omni1",
-          "poster_url": "/clinical-media/dehiscence_abdomen_poster.jpg?v=omni1",
-          "caption": "Abdominal Complication View: Separated midline laparotomy sutures (dehiscence) with protruding loop of small bowel (evisceration) and sterile moistened dressing protection."
-        }
-      ],
+      "video_url": "/clinical-media/jp_drain_hemorrhage.mp4?v=omni1",
+      "poster_url": "/clinical-media/jp_abdomen_poster.jpg?v=omni1",
+      "caption": "Live bedside abdominal view — inspect surgical site, catheters, and drain reservoir.",
+      "measured_output_note": "Graduated cylinder measurement: 135 mL bright-red sanguineous fluid emptied; bulb compressed flat & sterile pad applied over gauze.",
       "actions": [
         {
           "id": "assess_jp_hemorrhage",
-          "label": "Measure JP output (135 mL/hr sanguineous), re-compress bulb for suction, reinforce midline gauze & flag active hemorrhage",
+          "label": "Empty bulb into graduated cylinder, compress bulb flat before recapping & place sterile pad over gauze",
           "event_code": "ASSESS_JP_HEMORRHAGE"
         },
         {
           "id": "verify_gtube",
-          "label": "Verify Gastrostomy (G-tube) exit-site dressing intact & confirm tube patency / securement",
+          "label": "Check upper-left abdominal catheter wafer seal & confirm clamp securement",
           "event_code": "VERIFY_GTUBE"
         },
         {
           "id": "remove_primary_dressing_trap",
-          "label": "Peel off blood-saturated primary surgical gauze to wipe the fresh laparotomy incision clean",
+          "label": "Peel off stained midline gauze pad to inspect & wipe the fresh suture line",
           "event_code": "REMOVE_PRIMARY_DRESSING_TRAP"
+        },
+        {
+          "id": "leave_jp_open_trap",
+          "label": "Uncap bulb stopper & leave reservoir uncompressed for open gravity drainage",
+          "event_code": "LEAVE_JP_OPEN_TRAP"
         }
       ]
     },
@@ -370,79 +359,79 @@
         "question_id": "sq_monitor_cues",
         "domain": "knowledge",
         "ncsbn_category": "Physiological Adaptation",
-        "prompt": "Clinical Cue Check: The monitor shows HR 122 bpm, BP 92/58 mmHg, RR 10/min, and SpO2 88% in a pale, diaphoretic post-laparotomy patient on a Morphine PCA. Which concurrent complications explain this pattern?",
+        "prompt": "Telemetry Assessment Check: Based on the live monitor parameters and bedside appearance of this post-laparotomy patient receiving continuous IV analgesia, which concurrent physiological states are present?",
         "options": [
           {
             "id": "A",
-            "text": "Normal post-anesthesia shivering with benign emergence hypertension."
+            "text": "Benign post-anesthesia shivering with expected emergence hypertension."
           },
           {
             "id": "B",
-            "text": "Opioid-induced respiratory depression (RR 10/min, SpO2 88%) alongside suspected postoperative hemorrhage / hypovolemia (tachycardia, hypotension, pallor, diaphoresis)."
+            "text": "Opioid-induced hypoventilation alongside compensated/early hypovolemic shock from suspected postoperative bleeding."
           },
           {
             "id": "C",
-            "text": "Fluid volume overload from intraoperative IV crystalloid administration."
+            "text": "Circulatory fluid overload from intraoperative crystalloid infusion."
           },
           {
             "id": "D",
-            "text": "Malignant hyperthermia requiring immediate dantrolene IV push."
+            "text": "Malignant hyperthermia requiring immediate dantrolene sodium administration."
           }
         ],
         "correct_option_id": "B",
-        "rationale": "RR < 12/min with SpO2 88% on continuous Morphine PCA indicates opioid-induced respiratory depression, while compensatory tachycardia (HR 122), hypotension (BP 92/58), pallor, and diaphoresis are classic manifestations of postoperative hemorrhage after an exploratory laparotomy."
+        "rationale": "Bradypnea (RR 10/min) and hypoxemia (SpO2 88%, EtCO2 54 mmHg) on a continuous Morphine PCA indicate opioid-induced respiratory depression, while tachycardia (HR 122 bpm), hypotension (BP 92/58 mmHg), pallor, and diaphoresis indicate concurrent postoperative hemorrhage."
       },
       "ehr_tablet": {
         "question_id": "sq_ehr_cross_check",
         "domain": "risk_recognition",
         "ncsbn_category": "Pharmacological and Parenteral Therapies",
-        "prompt": "Chart Verification Check: Pre-op Hgb was 13.4 g/dL and PACU Hgb is now 9.6 g/dL; Cefazolin 1 g IV is due now; Allergies list Penicillin (Anaphylaxis). Which nursing decision is safest?",
+        "prompt": "Chart Cross-Check: After reviewing the MAR, Lab trends, and Allergies tabs, which nursing plan is safest?",
         "options": [
           {
             "id": "A",
-            "text": "Administer Cefazolin 1 g IV immediately to prevent surgical infection, then recheck Hgb in 24 hours."
+            "text": "Administer the scheduled antibiotic immediately to prevent peritonitis and recheck labs tomorrow."
           },
           {
             "id": "B",
-            "text": "Hold Cefazolin due to cephalosporin cross-sensitivity risk with anaphylactic penicillin allergy, prepare PRN Naloxone, and correlate the 3.8 g/dL Hgb drop with bedside JP drain output."
+            "text": "Hold the scheduled cephalosporin due to cross-sensitivity risk, prepare PRN opioid antagonist, and correlate the acute hemoglobin drop with bedside abdominal drain output."
           },
           {
             "id": "C",
-            "text": "Administer half the Cefazolin dose slowly over 60 minutes without notifying the prescriber."
+            "text": "Infuse half the scheduled antibiotic dose slowly over 60 minutes without contacting the prescriber."
           },
           {
             "id": "D",
-            "text": "Increase the Morphine PCA basal rate to blunt sympathetic tachycardia."
+            "text": "Increase the continuous PCA basal rate to reduce sympathetic heart-rate elevation."
           }
         ],
         "correct_option_id": "B",
-        "rationale": "First-generation cephalosporins (cefazolin) carry a cross-reactivity risk in patients with severe IgE-mediated penicillin anaphylaxis and must be held for prescriber clarification. Simultaneously, an acute Hgb drop from 13.4 to 9.6 g/dL confirms significant blood loss requiring immediate surgical drain correlation."
+        "rationale": "Cefazolin must be held for prescriber clarification in a patient with anaphylactic penicillin allergy. Simultaneously, the acute hemoglobin drop (13.4 to 9.6 g/dL) requires immediate bedside correlation with surgical drain output."
       },
       "surgical_site": {
         "question_id": "sq_surgical_wound",
-        "domain": "prioritisation",
+        "domain": "risk_recognition",
         "ncsbn_category": "Reduction of Risk Potential",
-        "prompt": "NCLEX Complication Check (Fig. 31-2B): If this post-laparotomy patient coughs forcefully and loops of pink bowel protrude through the separated abdominal suture line (wound evisceration), what is your IMMEDIATE priority action?",
+        "prompt": "Abdominal Video Check: Based on your visual observation of the patient's abdomen in the live bedside clip, what devices and clinical findings are present?",
         "options": [
           {
             "id": "A",
-            "text": "Use sterile gloved fingers to gently push the protruding bowel loops back into the peritoneal cavity."
+            "text": "Clean dry abdominal binder with a suprapubic urinary catheter and clear yellow drainage."
           },
           {
             "id": "B",
-            "text": "Place the patient in High Fowler's (90°) and wrap a dry elastic abdominal binder tightly over the wound."
+            "text": "Midline surgical gauze with bright-red sanguineous strikethrough, left-upper-quadrant gastrostomy (G-tube) wafer with clamped tube, and an expanded right-lower-quadrant Jackson-Pratt (JP) bulb filled with dark-red blood."
           },
           {
             "id": "C",
-            "text": "Place the patient in Low Fowler's (15–20°) with knees flexed, cover the protruding organs with sterile gauze moistened with warm sterile 0.9% Normal Saline, keep NPO, and notify the surgeon STAT."
+            "text": "Open Penrose passive drain on the left flank and a matured colostomy stoma pouch on the right."
           },
           {
             "id": "D",
-            "text": "Leave the eviscerated bowel exposed to air and collect a wound swab for culture."
+            "text": "Separated un-dressed abdominal suture line with protruding loops of small bowel."
           }
         ],
-        "correct_option_id": "C",
-        "rationale": "Wound evisceration is a surgical emergency: Low Fowler's with knees bent relieves tension on the abdominal incision, sterile warm saline-soaked dressings keep extruded viscera moist and prevent tissue necrosis (never push organs back in or apply dry gauze), and the surgical team must be notified STAT for operative repair."
+        "correct_option_id": "B",
+        "rationale": "Direct visual inspection of the abdomen shows bright-red sanguineous strikethrough on the taped midline gauze, an intact LUQ hydrocolloid gastrostomy wafer with blue clamp, and a nearly full, expanded RLQ Jackson-Pratt closed-suction bulb (>100 mL/hr sanguineous blood = active postoperative hemorrhage)."
       }
     },
     "event_catalog": {
@@ -498,6 +487,12 @@
         "classification": "TRAP",
         "severity": "MAJOR",
         "rationale": "Never remove the surgeon's first post-operative dressing within the initial 24 hours during active bleeding — peeling it off disrupts nascent clots and introduces infection risk. Always reinforce over the primary dressing and notify the surgeon."
+      },
+      "LEAVE_JP_OPEN_TRAP": {
+        "label": "Uncapped JP bulb stopper & left reservoir open to air",
+        "classification": "TRAP",
+        "severity": "MAJOR",
+        "rationale": "Jackson-Pratt drains rely on closed negative-pressure bulb suction; leaving the stopper open destroys suction, allows retrograde bacterial contamination, and fails to evacuate blood."
       },
       "INITIATE_CRYSTALLOID_BOLUS": {
         "label": "Initiated PRN 0.9% Normal Saline 500 mL IV bolus via dedicated secondary port",
@@ -630,7 +625,7 @@
       {
         "question_id": "q1_sbar",
         "domain": "prioritisation",
-        "title": "Question 1 of 4 • SBAR Surgical Escalation",
+        "title": "Question 1 of 3 • SBAR Surgical Escalation",
         "ncsbn_category": "Management of Care (15-21%)",
         "prompt": "You call the surgical resident regarding John Doe (4 hours post-exploratory laparotomy). Which SBAR report is most accurate and clinically complete?",
         "options": [
@@ -657,7 +652,7 @@
       {
         "question_id": "q2_abg",
         "domain": "knowledge",
-        "title": "Question 2 of 4 • ABG & Opioid Reversal",
+        "title": "Question 2 of 3 • ABG & Opioid Reversal",
         "ncsbn_category": "Pharmacological and Parenteral Therapies (13-19%)",
         "prompt": "An arterial blood gas drawn during the episode shows: pH 7.28, PaCO2 55 mmHg, PaO2 62 mmHg, HCO3 24 mEq/L. The patient is difficult to arouse with RR 9/min. Which interpretation and nursing action are most appropriate?",
         "options": [
@@ -684,7 +679,7 @@
       {
         "question_id": "q3_hemorrhage_jp",
         "domain": "risk_recognition",
-        "title": "Question 3 of 4 • Postoperative Hemorrhage & JP Drain Cues",
+        "title": "Question 3 of 3 • Postoperative Hemorrhage & JP Drain Cues",
         "ncsbn_category": "Reduction of Risk Potential (9-15%)",
         "prompt": "Which cluster of assessment findings in a patient 4 hours after an exploratory laparotomy most strongly indicates active internal postoperative hemorrhage requiring immediate surgical intervention?",
         "options": [
@@ -707,33 +702,6 @@
         ],
         "correct_option_id": "B",
         "rationale": "Postoperative hemorrhage manifests with the classic hypovolemic shock triad: compensatory tachycardia, progressive hypotension, and sympathetic vasoconstriction producing pale (pallor), cool, sweaty (diaphoretic) skin — confirmed directly by frank sanguineous JP bulb output exceeding 100 mL/hr."
-      },
-      {
-        "question_id": "q4_dehiscence_evisceration",
-        "domain": "clinical_judgment",
-        "title": "Question 4 of 4 • Wound Dehiscence & Evisceration Emergency",
-        "ncsbn_category": "Physiological Adaptation (11-17%)",
-        "prompt": "If the patient suddenly feels 'something give way' at his laparotomy incision after coughing, followed by a gush of pink serosanguineous fluid and protrusion of bowel loops through the separated wound edges (evisceration), which sequence of actions must the nurse take?",
-        "options": [
-          {
-            "id": "A",
-            "text": "Place in Low Fowler's (15–20°) with knees flexed, cover protruding bowel with sterile dressings soaked in warm sterile 0.9% Normal Saline, maintain NPO, stay with the patient, and have a colleague notify the surgeon STAT."
-          },
-          {
-            "id": "B",
-            "text": "Lower the bed to Trendelenburg (-15°), apply dry sterile 4x4 gauze with firm manual pressure to re-insert the bowel, and administer PRN morphine."
-          },
-          {
-            "id": "C",
-            "text": "Assist the patient to ambulate to the treatment room so the surgical resident can resuture the fascia under local anesthesia."
-          },
-          {
-            "id": "D",
-            "text": "Irrigate the protruding bowel with povidone-iodine antiseptic solution and apply an occlusive transparent film dressing."
-          }
-        ],
-        "correct_option_id": "A",
-        "rationale": "In abdominal wound dehiscence/evisceration, Low Fowler's (15–20°) with knees flexed reduces abdominal wall tension; sterile warm 0.9% Normal Saline dressings prevent mucosal desiccation and necrosis (dry gauze adheres to bowel, povidone-iodine is cytotoxic, and protruding organs must NEVER be pushed back in); keep NPO for emergency return to the OR."
       }
     ]
   },
@@ -892,7 +860,7 @@
     },
     {
       "id": "surgical_site",
-      "label": "Surgical Dressing, JP Drain & Gastrostomy Tube",
+      "label": "Abdominal Assessment",
       "surface": "3D_AND_MEDIA_INSPECTOR",
       "diagnostic_domain": "risk_recognition",
       "ncjmm_phase": "RECOGNIZE_CUES"

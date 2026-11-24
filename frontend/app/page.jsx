@@ -91,6 +91,7 @@ const initialClinicalState = () => ({
   jpAssessed: false,
   gtubeVerified: false,
   primaryDressingRemoved: false,
+  surgicalChosenIds: [],
   crystalloidBolus: false,
   hemorrhageShock: false,
   ehrTabsViewed: [],
@@ -116,15 +117,15 @@ export default function StudyAiExamPage() {
   const [audioMuted, setAudioMuted] = useState(true);
   // Render quality (DPR) mode, remembered between sessions; stats come back from the 3D canvas
   const [quality, setQuality] = useState('auto');
-  const [qualityStats, setQualityStats] = useState({ fps: 0, dpr: 1 });
+  const [qualityStats, setQualityStats] = useState({ fps: 60, dpr: 1 });
   useEffect(() => {
-    const saved = window.localStorage.getItem('studyai.quality');
+    const saved = window.localStorage.getItem('studyai.quality.v2');
     if (saved && QUALITY_MODES.includes(saved)) setQuality(saved);
   }, []);
   const cycleQuality = useCallback(() => {
     setQuality((q) => {
       const next = QUALITY_MODES[(QUALITY_MODES.indexOf(q) + 1) % QUALITY_MODES.length];
-      window.localStorage.setItem('studyai.quality', next);
+      window.localStorage.setItem('studyai.quality.v2', next);
       return next;
     });
   }, []);
@@ -263,12 +264,13 @@ export default function StudyAiExamPage() {
     [recordEvent]
   );
 
-  /* ---------------- Exam clock (UI only — never acts for the candidate) ---------------- */
+  /* ---------------- Exam clock (UI only — ticks at 1 Hz to avoid 4x/sec React tree reconciliation) ---------------- */
   useEffect(() => {
     if (!isBedside) return undefined;
     const id = setInterval(() => {
-      setExamElapsed((Date.now() - examStartRef.current) / 1000);
-    }, 250);
+      const sec = Math.floor((Date.now() - examStartRef.current) / 1000);
+      setExamElapsed((prev) => (prev === sec ? prev : sec));
+    }, 1000);
     return () => clearInterval(id);
   }, [isBedside]);
 
@@ -534,40 +536,51 @@ export default function StudyAiExamPage() {
     setExamStage(EXAM_STAGES.PRE_BRIEFING);
   };
 
-  /* ---------------- Station navigation (walk first, then inspect) ---------------- */
-  const handleSelectStation = (id) => {
-    if (!isBedside) return;
+  /* ---------------- Station navigation (walk first, then inspect — memoized for React.memo Room3D) ---------------- */
+  const examStageRef = useRef(examStage);
+  examStageRef.current = examStage;
+  const activeDrawerIdRef = useRef(activeDrawerId);
+  activeDrawerIdRef.current = activeDrawerId;
+
+  const handleSelectStation = useCallback((id) => {
+    if (examStageRef.current !== EXAM_STAGES.BEDSIDE) return;
     pendingStationRef.current = id;
-    if (activeDrawerId !== id) setActiveDrawerId(null);
+    if (activeDrawerIdRef.current !== id) setActiveDrawerId(null);
     setCameraFocusId(id);
     setCameraTrigger((t) => t + 1);
-  };
+  }, []);
 
-  const viewEhrTab = (tab) => {
-    patch({ activeEhrTab: tab });
-    if (!clinRef.current.ehrTabsViewed.includes(tab)) {
-      patch((prev) => ({ ehrTabsViewed: [...prev.ehrTabsViewed, tab] }));
-      recordEvent('REVIEW_EHR_TAB', 'ehr_tablet', `Reviewed EHR ${tab.toUpperCase()} tab`, { tab });
-    }
-  };
+  const viewEhrTab = useCallback(
+    (tab) => {
+      patch({ activeEhrTab: tab });
+      if (!clinRef.current.ehrTabsViewed.includes(tab)) {
+        patch((prev) => ({ ehrTabsViewed: [...prev.ehrTabsViewed, tab] }));
+        recordEvent('REVIEW_EHR_TAB', 'ehr_tablet', `Reviewed EHR ${tab.toUpperCase()} tab`, { tab });
+      }
+    },
+    [patch, recordEvent]
+  );
 
-  const handleNurseArrive = (id) => {
-    if (examStage !== EXAM_STAGES.BEDSIDE || pendingStationRef.current !== id) return;
-    pendingStationRef.current = null;
-    setActiveDrawerId(id);
-    setDrawerMinimized(false);
-    if (!inspectedRef.current.includes(id)) {
-      inspectedRef.current = [...inspectedRef.current, id];
-      setInspectedStations(inspectedRef.current);
-      recordEvent('INSPECT_STATION', id, `Inspected ${EX.station_labels[id]}`);
-    }
-    if (id === 'ehr_tablet') viewEhrTab(clinRef.current.activeEhrTab);
-  };
+  const handleNurseArrive = useCallback(
+    (id) => {
+      if (examStageRef.current !== EXAM_STAGES.BEDSIDE || pendingStationRef.current !== id) return;
+      pendingStationRef.current = null;
+      setActiveDrawerId(id);
+      setDrawerMinimized(false);
+      if (!inspectedRef.current.includes(id)) {
+        inspectedRef.current = [...inspectedRef.current, id];
+        setInspectedStations(inspectedRef.current);
+        recordEvent('INSPECT_STATION', id, `Inspected ${EX.station_labels[id]}`);
+      }
+      if (id === 'ehr_tablet') viewEhrTab(clinRef.current.activeEhrTab);
+    },
+    [recordEvent, viewEhrTab]
+  );
 
-  const handleNurseDepart = () => {
+  const handleNurseDepart = useCallback(() => {
     setActiveDrawerId(null);
     pendingStationRef.current = null;
-  };
+  }, []);
 
   const handleDoorwayView = () => {
     setActiveDrawerId(null);
@@ -708,7 +721,11 @@ export default function StudyAiExamPage() {
   );
 
   const handleSurgicalAction = (act) => {
+    if ((clin.surgicalChosenIds || []).includes(act.id)) return;
     cueNurse('surgical_site');
+    patch((prev) => ({
+      surgicalChosenIds: [...(prev.surgicalChosenIds || []), act.id],
+    }));
     if (act.event_code === 'ASSESS_JP_HEMORRHAGE') {
       if (clin.jpAssessed) return;
       patch({ jpAssessed: true });
@@ -725,6 +742,8 @@ export default function StudyAiExamPage() {
       if (clin.primaryDressingRemoved) return;
       patch({ primaryDressingRemoved: true });
       recordEvent('REMOVE_PRIMARY_DRESSING_TRAP', 'surgical_site', act.label);
+    } else if (act.event_code === 'LEAVE_JP_OPEN_TRAP') {
+      recordEvent('LEAVE_JP_OPEN_TRAP', 'surgical_site', act.label);
     }
   };
 
@@ -831,14 +850,13 @@ export default function StudyAiExamPage() {
         overflow: 'hidden',
       }}
     >
-      {/* 3D ROOM — frozen + blurred outside the timed bedside phase */}
+      {/* 3D ROOM — frozen + blurred outside the timed bedside phase (zero CSS filter during bedside for max WebGL FPS) */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
           zIndex: 1,
-          filter: frozen ? 'blur(8px) saturate(0.8) brightness(0.65)' : 'none',
-          transition: 'filter 0.6s ease',
+          filter: frozen ? 'blur(8px) saturate(0.8) brightness(0.65)' : undefined,
           pointerEvents: frozen ? 'none' : 'auto',
         }}
       >
@@ -886,10 +904,8 @@ export default function StudyAiExamPage() {
               right: 0,
               zIndex: 40,
               paddingTop: 'env(safe-area-inset-top, 0px)',
-              background: 'rgba(10, 19, 16, 0.94)',
+              background: 'rgba(10, 19, 16, 0.96)',
               borderBottom: '1px solid #1d2e27',
-              backdropFilter: 'blur(18px)',
-              WebkitBackdropFilter: 'blur(18px)',
             }}
           >
             <div
@@ -1130,10 +1146,8 @@ export default function StudyAiExamPage() {
                 width: '216px',
                 padding: '14px 18px',
                 borderRadius: '14px',
-                background: 'rgba(13, 27, 21, 0.90)',
+                background: 'rgba(13, 27, 21, 0.96)',
                 border: '1px solid #2a4136',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
                 cursor: 'pointer',
                 boxShadow: '0 14px 32px rgba(0, 0, 0, 0.42)',
               }}
@@ -1203,10 +1217,8 @@ export default function StudyAiExamPage() {
               bottom: 0,
               zIndex: 38,
               paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-              background: 'rgba(10, 19, 16, 0.94)',
+              background: 'rgba(10, 19, 16, 0.97)',
               borderTop: '1px solid #1d2e27',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
             }}
           >
             <div
@@ -1423,6 +1435,7 @@ export default function StudyAiExamPage() {
                 jpAssessed={clin.jpAssessed}
                 gtubeVerified={clin.gtubeVerified}
                 primaryDressingRemoved={clin.primaryDressingRemoved}
+                surgicalChosenIds={clin.surgicalChosenIds}
                 onSurgicalAction={handleSurgicalAction}
                 o2Device={clin.o2Device}
                 onSetO2={handleSetO2}

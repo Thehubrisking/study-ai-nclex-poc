@@ -55,7 +55,7 @@ export default function DraggableGlassPanel({
     const dy = e.clientY - dragRef.current.startY;
     const panelW = Math.min(width, vw - 24);
     const nextX = Math.max(8, Math.min(vw - panelW - 8, dragRef.current.origX + dx));
-    const nextY = Math.max(64, Math.min(vh - 110, dragRef.current.origY + dy));
+    const nextY = Math.max(60, Math.min(Math.max(64, vh - 270), dragRef.current.origY + dy));
     setPos({ x: nextX, y: nextY });
   };
 
@@ -74,19 +74,19 @@ export default function DraggableGlassPanel({
 
   const effectiveW = isTablet ? Math.min(width, 410, vw - 24) : Math.min(width, vw - 32);
   const clampedX = Math.max(12, Math.min(pos.x, vw - effectiveW - 12));
-  const clampedY = Math.max(66, Math.min(pos.y, vh - 130));
+  const clampedY = Math.max(60, Math.min(pos.y, Math.max(64, vh - 270)));
 
   const containerStyle = isPhone
     ? {
         position: 'fixed',
         left: '8px',
         right: '8px',
-        bottom: 'calc(76px + env(safe-area-inset-bottom, 0px))',
+        bottom: 'calc(112px + env(safe-area-inset-bottom, 0px))',
         top: 'auto',
         width: 'auto',
         maxWidth: 'none',
         borderRadius: minimized ? '999px' : '20px',
-        zIndex,
+        zIndex: Math.max(zIndex, 44),
         color: textPrimary,
         transition: 'border-radius 0.2s ease, box-shadow 0.2s ease',
         overflow: 'hidden',
@@ -99,7 +99,7 @@ export default function DraggableGlassPanel({
         minWidth: minimized ? '220px' : undefined,
         maxWidth: minimized ? '320px' : 'calc(100vw - 24px)',
         borderRadius: minimized ? '999px' : '20px',
-        zIndex,
+        zIndex: Math.max(zIndex, 44),
         color: textPrimary,
         transition: dragRef.current
           ? 'none'
@@ -107,11 +107,13 @@ export default function DraggableGlassPanel({
         overflow: 'hidden',
       };
 
+  // Reserve 148px at bottom for the walk-bar + trace chips + 58px panel header so drawers never get obstructed
+  const desktopAvailableBodyPx = Math.max(210, vh - clampedY - 208);
   const bodyMaxHeight = isPhone
     ? isLandscape
-      ? 'calc(100dvh - 160px)'
+      ? 'calc(100dvh - 180px)'
       : '44dvh'
-    : 'calc(100dvh - 180px)';
+    : `${desktopAvailableBodyPx}px`;
 
   return (
     <div

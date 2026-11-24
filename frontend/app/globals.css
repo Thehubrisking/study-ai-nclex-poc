@@ -134,11 +134,12 @@ canvas {
   border-radius: 999px;
 }
 
-/* ---------- STUDYAI CLINICAL FOREST & BOTANICAL SURFACES ---------- */
+/* ---------- STUDYAI CLINICAL FOREST & BOTANICAL SURFACES ----------
+ * High-opacity GPU-friendly surfaces (no backdrop-filter blur over the 60fps WebGL canvas,
+ * preventing Chromium compositor framebuffer readback stalls).
+ */
 .liquid-glass-light {
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(22px) saturate(160%);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  background: rgba(255, 255, 255, 0.97);
   border: 1px solid #e7eae3;
   box-shadow:
     0 20px 48px -14px rgba(16, 23, 19, 0.14),
@@ -146,9 +147,7 @@ canvas {
 }
 
 .liquid-glass-dark {
-  background: rgba(15, 29, 23, 0.93);
-  backdrop-filter: blur(24px) saturate(165%);
-  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  background: rgba(15, 29, 23, 0.96);
   border: 1px solid #2a4136;
   box-shadow:
     0 24px 56px -12px rgba(5, 11, 9, 0.72),

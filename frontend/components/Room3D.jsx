@@ -2,7 +2,6 @@
 
 import React, {
   Suspense,
-  forwardRef,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -14,24 +13,15 @@ import {
   OrbitControls,
   Html,
   RoundedBox,
-  Environment,
   useGLTF,
 } from '@react-three/drei';
-import {
-  EffectComposer,
-  Bloom,
-  SMAA,
-  Vignette,
-  ToneMapping,
-} from '@react-three/postprocessing';
-import { Effect, ToneMappingMode, SMAAPreset } from 'postprocessing';
 import * as THREE from 'three';
 import { live } from '../lib/liveVitals';
 import { SweepMonitor, LOGICAL_W, LOGICAL_H } from '../lib/monitorRenderer';
 import { fitModel, keepHalfGeometry, filterGeometryTriangles } from '../lib/fitModel';
 import { speakPatientCue } from '../utils/clinicalAudio';
 import HospitalRoom, { RoomLighting, ROOM } from './HospitalRoom';
-import AdaptiveQuality, { dprForMode } from './AdaptiveQuality';
+import AdaptiveQuality, { dprForMode, isSoftwareRenderer } from './AdaptiveQuality';
 import {
   NAV,
   registerObstacle,
@@ -170,7 +160,7 @@ const SCRUB_PALETTES = {
 const SCRUB_CYCLE = ['plum', 'forest', 'navy', 'ceil'];
 
 function createNurseMaterial(src, uniforms) {
-  const mat = new THREE.MeshPhysicalMaterial({
+  const mat = new THREE.MeshStandardMaterial({
     map: src.map || null,
     normalMap: src.normalMap || null,
     normalScale: src.normalScale ? src.normalScale.clone() : new THREE.Vector2(1, 1),
@@ -182,17 +172,10 @@ function createNurseMaterial(src, uniforms) {
     metalness: 1,
     side: THREE.DoubleSide,
     color: new THREE.Color(1, 1, 1),
-    ior: 1.38,
-    specularIntensity: 0.5,
-    sheen: 1,
-    sheenRoughness: 0.76,
-    sheenColor: new THREE.Color('#c8d4e8'),
-    clearcoat: 1,
-    clearcoatRoughness: 0.36,
     envMapIntensity: 0.85,
   });
-  if (mat.map) mat.map.anisotropy = 8;
-  if (mat.normalMap) mat.normalMap.anisotropy = 8;
+  if (mat.map) mat.map.anisotropy = 4;
+  if (mat.normalMap) mat.normalMap.anisotropy = 4;
   mat.name = 'nurse_actorscan_pbr';
 
   mat.onBeforeCompile = (shader) => {
@@ -246,20 +229,6 @@ function createNurseMaterial(src, uniforms) {
         `
       )
       .replace(
-        '#include <lights_physical_fragment>',
-        `#include <lights_physical_fragment>
-        material.specularColor *= mix(1.0, 0.22, nCloth);
-        material.specularColor *= mix(1.0, 0.78, nSkin * (1.0 - nEye));
-        #ifdef USE_SHEEN
-          material.sheenColor *= nCloth * 0.35;
-        #endif
-        #ifdef USE_CLEARCOAT
-          material.clearcoat = clamp(nEye * 0.96 + nSkin * 0.06, 0.0, 1.0);
-          material.clearcoatRoughness = mix(0.42, 0.02, nEye);
-        #endif
-        `
-      )
-      .replace(
         '#include <lights_fragment_end>',
         `#include <lights_fragment_end>
         float nNdV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
@@ -270,7 +239,7 @@ function createNurseMaterial(src, uniforms) {
         `
       );
   };
-  mat.customProgramCacheKey = () => 'nurse_actorscan_pbr_v2';
+  mat.customProgramCacheKey = () => 'nurse_actorscan_std_v3';
   return mat;
 }
 
@@ -453,9 +422,13 @@ function NurseAvatar3D({
 
     nurseGltfScene.traverse((obj) => {
       if (obj.isMesh) {
-        obj.castShadow = true;
+        // Nurse Daniel already renders 3 real-time ground/foot contact AO shadows;
+        // skipping dynamic shadow-map skinning lets us cache the room shadow map at 0 cost/frame!
+        obj.castShadow = false;
         obj.receiveShadow = true;
         obj.frustumCulled = false;
+        // Never CPU-raycast SkinnedMesh on pointermove; a 12-triangle hitbox handles clicks
+        obj.raycast = () => {};
 
         if (obj.morphTargetDictionary && obj.morphTargetInfluences) {
           morphMeshes.push(obj);
@@ -966,21 +939,11 @@ function NurseAvatar3D({
       position={[0.25, 0, 2.35]}
       onClick={stop(() => onToggleScrubStyle?.())}
     >
-      {/* Subtle local facial fill / corneal eye catchlight + warm shoulder rim */}
-      <pointLight
-        position={[0.16, 1.68, 0.54]}
-        intensity={0.52}
-        distance={1.65}
-        decay={2}
-        color="#fff8f0"
-      />
-      <pointLight
-        position={[-0.26, 1.84, -0.38]}
-        intensity={0.32}
-        distance={1.35}
-        decay={2}
-        color="#fde68a"
-      />
+      {/* 12-triangle zero-overdraw hitbox for clicking Nurse Daniel to cycle scrub palettes */}
+      <mesh position={[0, 0.88, 0]}>
+        <boxGeometry args={[0.42, 1.76, 0.34]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
+      </mesh>
 
       {/* Ambient torso ground shadow + dual shoe-sole contact AO */}
       <mesh
@@ -1171,65 +1134,6 @@ const stop = (fn) => (e) => {
   fn();
 };
 
-/**
- * RDR2-Inspired Cinematic Color Grading + Filmic Toe/Shoulder Contrast + Warm/Cool Split-Toning + Subtle 35mm Grain.
- * Runs in the same single shader pass as exposure before ACES Filmic tone mapping (zero extra render target cost).
- */
-class CinematicGradeEffectImpl extends Effect {
-  constructor(exposure = 1) {
-    super(
-      'CinematicGradeEffect',
-      /* glsl */ `
-      uniform float exposure;
-      uniform float uTime;
-      void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-        vec3 col = inputColor.rgb * exposure;
-
-        // 1. Filmic toe & shoulder contrast curve (grounds dark shadows, keeps highlights creamy)
-        vec3 lumaVec = vec3(0.2126, 0.7152, 0.0722);
-        float luma = dot(col, lumaVec);
-        float toe = smoothstep(0.0, 0.32, luma);
-        col *= mix(0.86, 1.06, toe);
-
-        // 2. Warm-amber highlights / Cool prussian-twilight shadows split-toning (Red Dead look)
-        vec3 shadowTint = vec3(0.92, 0.96, 1.06);
-        vec3 highlightTint = vec3(1.06, 1.01, 0.93);
-        float splitMask = clamp(luma / (luma + 0.55), 0.0, 1.0);
-        col *= mix(shadowTint, highlightTint, splitMask);
-
-        // 3. Subtle vibrance boost on muted midtones without oversaturating skin
-        float sat = max(col.r, max(col.g, col.b)) - min(col.r, min(col.g, col.b));
-        col = mix(vec3(dot(col, lumaVec)), col, 1.0 + (1.0 - sat) * 0.14);
-
-        // 4. Organic 35mm film grain (stronger in midtones, zero in pure black/white)
-        float noise = fract(sin(dot(uv + fract(uTime * 0.07), vec2(12.9898, 78.233))) * 43758.5453);
-        float grainMask = smoothstep(0.02, 0.25, luma) * (1.0 - smoothstep(0.8, 1.4, luma));
-        col += (noise - 0.5) * 0.022 * grainMask;
-
-        outputColor = vec4(max(col, vec3(0.0)), inputColor.a);
-      }`,
-      {
-        uniforms: new Map([
-          ['exposure', new THREE.Uniform(exposure)],
-          ['uTime', new THREE.Uniform(0)],
-        ]),
-      }
-    );
-  }
-}
-
-const Exposure = forwardRef(function Exposure(_, ref) {
-  const exposure = useThree((s) => s.gl.toneMappingExposure);
-  const effect = useMemo(() => new CinematicGradeEffectImpl(exposure), []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    effect.uniforms.get('exposure').value = exposure;
-  }, [effect, exposure]);
-  useFrame(({ clock }) => {
-    effect.uniforms.get('uTime').value = clock.elapsedTime;
-  });
-  return <primitive ref={ref} object={effect} dispose={null} />;
-});
-
 /** Error boundary so an HDRI issue never blocks rendering. */
 class EnvironmentBoundary extends React.Component {
   constructor(props) {
@@ -1319,8 +1223,6 @@ function InteractiveHotspot({
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backdropFilter: 'blur(6px)',
-              WebkitBackdropFilter: 'blur(6px)',
             }}
           >
             <span
@@ -1572,6 +1474,8 @@ function HospitalBedGLB({
       alignLongestToZ: true,
       lift: 0,
       onMesh: (m) => {
+        // Use a lightweight 12-triangle hitbox for bed clicks instead of raycasting 52k bed triangles
+        m.raycast = () => {};
         const mat = m.material;
         if (!mat) return;
         const name = (mat.name || '').toLowerCase();
@@ -1623,6 +1527,8 @@ function HospitalBedGLB({
         target: 0.72,
         floor: false,
         onMesh: (m) => {
+          m.castShadow = false;
+          m.raycast = () => {};
           if (m.material) {
             m.material.roughness = 0.88;
             m.material.metalness = 0;
@@ -1661,6 +1567,11 @@ function HospitalBedGLB({
 
   return (
     <group onClick={selectBed}>
+      {/* 12-triangle zero-overdraw hitbox for clicking the hospital bed frame/mattress */}
+      <mesh position={[0, 0.62, 0]}>
+        <boxGeometry args={[1.02, 0.68, 2.32]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
+      </mesh>
       <primitive object={fittedBed} />
 
       {/* Quilted warm-beige hospital coverlet + crisp white turned-down top sheet (matches reference photo) */}
@@ -1668,17 +1579,13 @@ function HospitalBedGLB({
         <RoundedBox
           args={[0.92, 0.055, 1.04]}
           radius={0.024}
-          castShadow
           receiveShadow
         >
-          <meshPhysicalMaterial
+          <meshStandardMaterial
             map={quiltTex}
             color="#ffffff"
             roughness={0.86}
             metalness={0}
-            sheen={0.65}
-            sheenRoughness={0.7}
-            sheenColor="#f5efe6"
           />
         </RoundedBox>
         {/* Crisp white folded top-sheet cuff at the top edge of the quilted blanket */}
@@ -1686,15 +1593,12 @@ function HospitalBedGLB({
           args={[0.93, 0.058, 0.14]}
           position={[0, 0.004, -0.49]}
           radius={0.018}
-          castShadow
           receiveShadow
         >
-          <meshPhysicalMaterial
+          <meshStandardMaterial
             color="#f8f7f4"
             roughness={0.84}
             metalness={0}
-            sheen={0.5}
-            sheenColor="#ffffff"
           />
         </RoundedBox>
       </group>
@@ -1716,13 +1620,12 @@ function HospitalBedGLB({
             args={[0.8, 0.08, 0.92]}
             position={[0, 0.02, -0.45]}
             radius={0.03}
-            castShadow
             receiveShadow
           >
-            <meshPhysicalMaterial
-              {...MATTE_FABRIC}
+            <meshStandardMaterial
               color="#f8f6f0"
-              sheenColor="#ffffff"
+              roughness={0.9}
+              metalness={0}
             />
           </RoundedBox>
         )}
@@ -1862,11 +1765,12 @@ function PatientAndWristband({
     const mats = [];
     scene.traverse((m) => {
       if (m.isMesh) {
-        // The bed already casts the floor shadow; skipping shadow-map skinning on the 282k-tri
-        // patient mesh saves >560k skinned vertex transforms per frame.
+        // Skip shadow-map skinning & CPU SkinnedMesh.raycast (which otherwise transforms
+        // every skinned vertex by 4 bone matrices in JS on every pointermove over the bed!).
         m.castShadow = false;
         m.receiveShadow = true;
         m.frustumCulled = false;
+        m.raycast = () => {};
         const list = Array.isArray(m.material) ? m.material : [m.material];
         for (const mat of list) {
           if (mat && mat.isMeshStandardMaterial) mats.push(mat);
@@ -2034,7 +1938,7 @@ function PatientAndWristband({
 
   return (
     <group>
-      {/* Rigged 3D Patient Model */}
+      {/* Rigged 3D Patient Model + 12-triangle instant click hitbox */}
       <group
         position={[0, 1.2, -0.1]}
         onClick={stop(() => {
@@ -2042,6 +1946,10 @@ function PatientAndWristband({
           speakPatientCue(verbalState.text, false);
         })}
       >
+        <mesh position={[0, 0.06, 0.06]}>
+          <boxGeometry args={[0.56, 0.3, 1.78]} />
+          <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
+        </mesh>
         <group rotation={[0, 0, Math.PI / 2]}>
           <group rotation={[-Math.PI / 2, 0, 0]}>
             <group scale={scale} position={offset}>
@@ -2089,8 +1997,6 @@ function PatientAndWristband({
                 borderLeft: '3px solid #e8b04b',
                 color: '#e4efe9',
                 boxShadow: '0 14px 30px rgba(0, 0, 0, 0.5)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 userSelect: 'none',
@@ -2179,6 +2085,7 @@ function SurgicalDrainsAndDressing3D({
   bedAngle = 0,
   jpAssessed = false,
   primaryDressingRemoved = false,
+  emoteIcon = '🩸',
   surgicalObj,
   isSelected,
   onSelectObject,
@@ -2188,10 +2095,10 @@ function SurgicalDrainsAndDressing3D({
   if (!ctx.visible || !surgicalObj) return null;
 
   const elevY = Math.sin(THREE.MathUtils.degToRad(Math.max(0, bedAngle))) * 0.065;
-  const stationLabel = ctx.labels[surgicalObj.id] || 'Surgical Dressing & Drains';
+  const stationLabel = ctx.labels[surgicalObj.id] || 'Abdominal Assessment';
 
   // Expressive clinical emote state (neutral/attention-calling without low-poly 3D clutter)
-  const emoteGlyph = primaryDressingRemoved ? '⚠️' : jpAssessed ? '🩹' : '🩸';
+  const emoteGlyph = primaryDressingRemoved ? '⚠️' : jpAssessed ? '🩹' : emoteIcon;
   const accentColor = primaryDressingRemoved
     ? '#ee8572'
     : isSelected
@@ -2252,8 +2159,6 @@ function SurgicalDrainsAndDressing3D({
               justifyContent: 'center',
               transform: hovered || isSelected ? 'scale(1.10)' : 'scale(1)',
               transition: 'transform 0.16s ease',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
             }}
           >
             {!jpAssessed && (
@@ -2335,6 +2240,8 @@ function BedsideMonitor3D({
       axis: 'height',
       target: 1.9,
       onMesh: (m) => {
+        m.castShadow = false;
+        m.raycast = () => {};
         if (m.material) {
           const n = (m.material.name || '').toLowerCase();
           if (n.includes('metal') || n.includes('steel')) {
@@ -2382,17 +2289,22 @@ function BedsideMonitor3D({
 
   const { monitor, texture } = useMemo(() => {
     const canvas = document.createElement('canvas');
-    const m = new SweepMonitor(canvas, { pixelRatio: 1.5, patientName });
+    const m = new SweepMonitor(canvas, { pixelRatio: 1, patientName });
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 8;
+    tex.anisotropy = 4;
     return { monitor: m, texture: tex };
   }, [patientName]);
 
+  const monitorFrameAcc = useRef(0);
   useFrame((state, delta) => {
     if (monitorConnected) {
-      monitor.tick(delta);
-      texture.needsUpdate = true;
+      monitorFrameAcc.current += delta;
+      if (monitorFrameAcc.current >= 1 / 24) {
+        monitor.tick(monitorFrameAcc.current);
+        monitorFrameAcc.current = 0;
+        texture.needsUpdate = true;
+      }
     }
     const mat = beaconRef.current;
     if (mat) {
@@ -2425,6 +2337,10 @@ function BedsideMonitor3D({
       rotation={[0, Math.PI, 0]}
       onClick={stop(() => onSelectObject('bedside_monitor'))}
     >
+      <mesh position={[0, 0.95, 0]}>
+        <boxGeometry args={[0.55, 1.9, 0.48]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
+      </mesh>
       <primitive object={fitted} />
 
       {/* Live Emissive ICU Waveform Screen mounted on the 3D monitor face */}
@@ -2539,16 +2455,16 @@ function WallOxygenPanel3D({
 
       {/* Thorpe-tube flowmeter body */}
       <group position={[x, 1.39, z]}>
-        <RoundedBox args={[0.085, 0.24, 0.07]} radius={0.015} castShadow>
+        <RoundedBox args={[0.085, 0.24, 0.07]} radius={0.015}>
           <meshStandardMaterial {...BRUSHED_METAL} />
         </RoundedBox>
         <mesh position={[0, 0.02, 0.037]}>
-          <cylinderGeometry args={[0.018, 0.018, 0.16, 20]} />
-          <meshPhysicalMaterial {...CLEAR_POLYMER} color="#e0f2fe" />
+          <cylinderGeometry args={[0.018, 0.018, 0.16, 16]} />
+          <meshStandardMaterial {...CLEAR_POLYMER} color="#e0f2fe" />
         </mesh>
         {/* Float ball rises when O2 is flowing */}
         <mesh position={[0, o2Device ? 0.06 : -0.05, 0.037]}>
-          <sphereGeometry args={[0.011, 14, 14]} />
+          <sphereGeometry args={[0.011, 12, 12]} />
           <meshStandardMaterial
             color={o2Device ? '#10b981' : '#64748b'}
             emissive={o2Device ? '#10b981' : '#000000'}
@@ -2558,20 +2474,20 @@ function WallOxygenPanel3D({
         </mesh>
         {/* Flow control knob */}
         <mesh position={[0, -0.135, 0.01]} rotation={[0, 0, 0]}>
-          <cylinderGeometry args={[0.022, 0.022, 0.03, 18]} />
+          <cylinderGeometry args={[0.022, 0.022, 0.03, 16]} />
           <meshStandardMaterial color="#16a34a" roughness={0.4} />
         </mesh>
       </group>
 
       {/* Humidifier bottle hanging below the flowmeter */}
       <group position={[x, 1.15, z + 0.01]}>
-        <mesh castShadow>
-          <cylinderGeometry args={[0.042, 0.038, 0.14, 24]} />
-          <meshPhysicalMaterial {...CLEAR_POLYMER} color="#bae6fd" />
+        <mesh>
+          <cylinderGeometry args={[0.042, 0.038, 0.14, 18]} />
+          <meshStandardMaterial {...CLEAR_POLYMER} color="#bae6fd" />
         </mesh>
         <mesh position={[0, -0.015, 0]}>
-          <cylinderGeometry args={[0.035, 0.032, 0.09, 20]} />
-          <meshPhysicalMaterial {...CLEAR_POLYMER} color="#38bdf8" />
+          <cylinderGeometry args={[0.035, 0.032, 0.09, 16]} />
+          <meshStandardMaterial {...CLEAR_POLYMER} color="#38bdf8" />
         </mesh>
         <mesh position={[0, 0.08, 0]}>
           <cylinderGeometry args={[0.03, 0.03, 0.025, 18]} />
@@ -2613,6 +2529,8 @@ function IvPumpPole3D({
             if (m.isMesh) m.geometry = keepHalfGeometry(m.geometry, true);
           }),
         onMesh: (m) => {
+          m.castShadow = false;
+          m.raycast = () => {};
           if (m.material) {
             m.material.metalness = 0.8;
             m.material.roughness = 0.25;
@@ -2635,11 +2553,15 @@ function IvPumpPole3D({
       rotation={[0, Math.PI, 0]}
       onClick={stop(() => onSelectObject('iv_pump'))}
     >
+      <mesh position={[0.1, 1.2, 0]}>
+        <boxGeometry args={[0.48, 2.35, 0.42]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
+      </mesh>
       <primitive object={fittedPole} />
 
       {/* Mounted Morphine PCA Infusion Pump Unit on Pole */}
       <group position={[0.16, 1.32, 0]} rotation={[0, Math.PI, 0]}>
-        <RoundedBox args={[0.22, 0.3, 0.16]} radius={0.025} castShadow>
+        <RoundedBox args={[0.22, 0.3, 0.16]} radius={0.025}>
           <meshStandardMaterial color="#1e293b" metalness={0.5} roughness={0.3} />
         </RoundedBox>
         <mesh position={[0, 0.02, 0.082]}>
@@ -2653,20 +2575,20 @@ function IvPumpPole3D({
         </mesh>
       </group>
 
-      {/* Refractive IV Morphine PCA Infusion Bag (transmission=0.85, roughness=0.1, ior=1.33) */}
-      <mesh position={[0.26, 1.98, 0.02]} castShadow>
-        <capsuleGeometry args={[0.065, 0.15, 12, 24]} />
-        <meshPhysicalMaterial {...CLEAR_POLYMER} color="#e0f2fe" />
+      {/* IV Morphine PCA Infusion Bag */}
+      <mesh position={[0.26, 1.98, 0.02]}>
+        <capsuleGeometry args={[0.065, 0.15, 8, 16]} />
+        <meshStandardMaterial {...CLEAR_POLYMER} color="#e0f2fe" />
       </mesh>
 
-      {/* Refractive IV Drip Chamber + Falling Droplet */}
-      <mesh position={[0.26, 1.75, 0.02]} castShadow>
-        <cylinderGeometry args={[0.018, 0.015, 0.09, 20]} />
-        <meshPhysicalMaterial {...CLEAR_POLYMER} color="#bae6fd" />
+      {/* IV Drip Chamber + Falling Droplet */}
+      <mesh position={[0.26, 1.75, 0.02]}>
+        <cylinderGeometry args={[0.018, 0.015, 0.09, 14]} />
+        <meshStandardMaterial {...CLEAR_POLYMER} color="#bae6fd" />
       </mesh>
       <mesh ref={dripDropRef} position={[0.26, 1.76, 0.02]}>
-        <sphereGeometry args={[0.007, 10, 10]} />
-        <meshPhysicalMaterial {...CLEAR_POLYMER} color="#38bdf8" />
+        <sphereGeometry args={[0.007, 8, 8]} />
+        <meshStandardMaterial {...CLEAR_POLYMER} color="#38bdf8" />
       </mesh>
 
       {ivPumpObj && (
@@ -2966,7 +2888,37 @@ function TrendelenburgTilt({ bedAngle, children }) {
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Room3D({
+/**
+ * On-demand shadow-map baker: renders the 1024x1024 room shadow map once after GLB assets mount
+ * and only when bed articulation or side rails change, eliminating 60Hz per-frame shadow passes!
+ */
+function OnDemandShadowMap({ bedAngle, leftRailUp, rightRailUp }) {
+  const gl = useThree((s) => s.gl);
+  const framesLeft = useRef(4);
+
+  useEffect(() => {
+    gl.shadowMap.autoUpdate = false;
+    framesLeft.current = 4;
+    return () => {
+      gl.shadowMap.autoUpdate = true;
+    };
+  }, [gl]);
+
+  useEffect(() => {
+    framesLeft.current = Math.max(framesLeft.current, 2);
+  }, [bedAngle, leftRailUp, rightRailUp]);
+
+  useFrame(() => {
+    if (framesLeft.current > 0) {
+      gl.shadowMap.needsUpdate = true;
+      framesLeft.current -= 1;
+    }
+  });
+
+  return null;
+}
+
+const Room3D = React.memo(function Room3D({
   scenarioData,
   vitals,
   monitorConnected = true,
@@ -2999,7 +2951,6 @@ export default function Room3D({
 }) {
   const controlsRef = useRef();
   const isAnimatingRef = useRef(false);
-  const composerRef = useRef();
   const [scrubStyle, setScrubStyle] = useState('plum');
   const [dpr, setDpr] = useState(() => dprForMode(quality));
   const nurseStateRef = useRef({
@@ -3074,17 +3025,19 @@ export default function Room3D({
     st.pendingRailSide = side;
   };
 
+  const softwareGpu = useMemo(() => isSoftwareRenderer(), []);
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
-        shadows
+        shadows={!softwareGpu && quality !== 'performance'}
         dpr={dpr}
-        camera={{ position: [3.5, 2.3, 4.2], fov: 44, near: 0.08, far: 50 }}
+        camera={{ position: [3.5, 2.3, 4.2], fov: 44, near: 0.08, far: 40 }}
         gl={{
-          antialias: false,
+          antialias: !softwareGpu && quality !== 'performance',
           powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.1,
+          toneMappingExposure: 1.06,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
       >
@@ -3120,27 +3073,22 @@ export default function Room3D({
 
         <AdaptiveQuality
           mode={quality}
-          composerRef={composerRef}
           onDpr={setDpr}
           onStats={onQualityStats}
         />
 
         <HotspotContext.Provider value={hotspotCtx}>
 
-        {/* Day-shift / night-shift clinical lighting rig (window sun, exam spot, reading light, fills) */}
+        {/* Day-shift / night-shift clinical lighting rig + zero-cost cached shadow map */}
         <RoomLighting darkMode={darkMode} />
         <AlarmLight monitorConnected={monitorConnected} />
-
-        {/* Specular Indoor Environment Reflections (local apartment preset HDRI) */}
-        <EnvironmentBoundary>
-          <Suspense fallback={null}>
-            <Environment
-              files="/hdri/lebombo_1k.hdr"
-              background={false}
-              environmentIntensity={darkMode ? 0.32 : 0.4}
-            />
-          </Suspense>
-        </EnvironmentBoundary>
+        {!softwareGpu && quality !== 'performance' && (
+          <OnDemandShadowMap
+            bedAngle={bedAngle}
+            leftRailUp={leftRailUp}
+            rightRailUp={rightRailUp}
+          />
+        )}
 
         {/* Enclosed Med-Surg Patient Room (vinyl floor, headwall, window + lounge, door, curtain, clock) */}
         <group>
@@ -3197,6 +3145,7 @@ export default function Room3D({
                 bedAngle={Math.max(0, bedAngle)}
                 jpAssessed={jpAssessed}
                 primaryDressingRemoved={primaryDressingRemoved}
+                emoteIcon={scenarioData?.exam_config?.surgical_site?.emote_glyph || '🩸'}
                 surgicalObj={getObj('surgical_site')}
                 {...sel('surgical_site')}
               />
@@ -3235,19 +3184,13 @@ export default function Room3D({
           </Suspense>
         </group>
 
-        <EffectComposer ref={composerRef} multisampling={0}>
-          <Bloom luminanceThreshold={0.95} mipmapBlur intensity={1.05} />
-          <Exposure />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <SMAA preset={SMAAPreset.HIGH} />
-          <Vignette eskil={false} offset={0.14} darkness={0.48} />
-        </EffectComposer>
-
         </HotspotContext.Provider>
       </Canvas>
     </div>
   );
-}
+});
+
+export default Room3D;
 
 useGLTF.preload('/models/hospital_bed_carlos.glb');
 useGLTF.preload('/models/pillow.glb');

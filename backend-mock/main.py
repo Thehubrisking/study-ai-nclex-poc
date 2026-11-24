@@ -51,6 +51,7 @@ TRAP_CODES = {
     "CONTINUE_BASAL_TRAP",
     "ALLERGY_CROSS_SENSITIVITY_ERROR",
     "REMOVE_PRIMARY_DRESSING_TRAP",
+    "LEAVE_JP_OPEN_TRAP",
 }
 CRITICAL_CODES = {"ALLERGY_CROSS_SENSITIVITY_ERROR", "OPIOID_DEMAND_BOLUS_TRAP"}
 INTERVENTION_CODES = {
@@ -66,6 +67,7 @@ INTERVENTION_CODES = {
     "CEFAZOLIN_HELD_ALLERGY",
     "INITIATE_CRYSTALLOID_BOLUS",
     "REMOVE_PRIMARY_DRESSING_TRAP",
+    "LEAVE_JP_OPEN_TRAP",
 }
 ABC_CODES = {
     "SET_BED_FOWLERS",
@@ -208,6 +210,7 @@ def get_authoritative_scenario():
                 "SALINE_FLUSH_TRAP (-20 Risk Recognition)",
                 "REMOVE_PRIMARY_DRESSING_TRAP (-20 Risk Recognition)",
                 "TRENDELENBURG_TRAP (-20 Prioritisation)",
+                "LEAVE_JP_OPEN_TRAP (-15 Risk Recognition)",
                 "CONTINUE_BASAL_TRAP (-15 Risk Recognition)",
             ],
             "station_questions": station_questions,
@@ -281,7 +284,6 @@ def evaluate_candidate_action(payload: TelemetryPayload):
     sbar_correct = q_correct.get("q1_sbar", False)
     abg_correct = q_correct.get("q2_abg", False)
     hemorrhage_q_correct = q_correct.get("q3_hemorrhage_jp", False)
-    dehiscence_q_correct = q_correct.get("q4_dehiscence_evisceration", False)
 
     ended_code_blue = payload.end_reason == "CODE_BLUE_FAILURE"
     first_intervention = first_event(timeline, INTERVENTION_CODES)
@@ -322,14 +324,9 @@ def evaluate_candidate_action(payload: TelemetryPayload):
             ledger.add("knowledge", 0, f"Missed or skipped {sq_res['station_label']} clinical cue check ({sq_res['question_id']}).")
 
     if abg_correct:
-        ledger.add("knowledge", 10, "Correctly interpreted the ABG (uncompensated respiratory acidosis) and selected naloxone.")
+        ledger.add("knowledge", 20, "Correctly interpreted the ABG (uncompensated respiratory acidosis) and selected naloxone.")
     else:
         ledger.add("knowledge", 0, "Missed the ABG interpretation / opioid reversal exit question.")
-
-    if dehiscence_q_correct:
-        ledger.add("knowledge", 10, "Correctly selected sterile warm saline-moistened dressings and Low Fowler's (knees flexed) for wound evisceration.")
-    else:
-        ledger.add("knowledge", 0, "Missed the wound dehiscence & evisceration emergency exit question.")
 
     # ---------- 2. PRIORITISATION (Max 100) ----------
     if first_intervention is None:
@@ -475,6 +472,7 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         "OPIOID_DEMAND_BOLUS_TRAP": (-30, "Gave an additional opioid bolus to a patient with respiratory depression and hypotension."),
         "SALINE_FLUSH_TRAP": (-20, "Rapid-flushed the PCA line, bolusing residual morphine."),
         "REMOVE_PRIMARY_DRESSING_TRAP": (-20, "Peeled off the surgeon's primary laparotomy dressing (<24 hr post-op), disrupting hemostatic clots."),
+        "LEAVE_JP_OPEN_TRAP": (-15, "Left the JP bulb uncompressed and open to air, eliminating closed suction and creating an infection portal."),
         "CONTINUE_BASAL_TRAP": (-15, "Chose to continue the basal morphine infusion."),
     }
     for e in timeline:
@@ -492,7 +490,7 @@ def evaluate_candidate_action(payload: TelemetryPayload):
     # ---------- 4. CLINICAL JUDGMENT (Max 100) ----------
     end_spo2 = (room.get("vitals") or {}).get("spo2", 0) or 0
     if payload.stabilized_at_end:
-        ledger.add("clinical_judgment", 30, "Patient met full stabilization criteria (SpO2 ≥ 95%, RR ≥ 14, PCA paused, JP surgical hemorrhage assessed).")
+        ledger.add("clinical_judgment", 35, "Patient met full stabilization criteria (SpO2 ≥ 95%, RR ≥ 14, PCA paused, JP surgical hemorrhage assessed).")
     elif end_spo2 >= 90 and not ended_code_blue:
         ledger.add("clinical_judgment", 15, f"Partial improvement (SpO2 {end_spo2}%) but full respiratory + surgical stabilization criteria were not met.")
     else:
@@ -581,10 +579,14 @@ def evaluate_candidate_action(payload: TelemetryPayload):
         layers.append("EVALUATE_OUTCOMES")
 
     topics = []
-    if not room.get("jp_assessed") or not hemorrhage_q_correct or "REMOVE_PRIMARY_DRESSING_TRAP" in actions:
-        topics.append("Postoperative hemorrhage: Jackson-Pratt (JP) bulb suction, dressing reinforcement & hypovolemic shock cues")
-    if not dehiscence_q_correct or sq_correct.get("sq_surgical_wound") is False:
-        topics.append("Abdominal wound dehiscence & evisceration emergency care (warm sterile saline dressings & Low Fowler's)")
+    if (
+        not room.get("jp_assessed")
+        or not hemorrhage_q_correct
+        or sq_correct.get("sq_surgical_wound") is False
+        or "REMOVE_PRIMARY_DRESSING_TRAP" in actions
+        or "LEAVE_JP_OPEN_TRAP" in actions
+    ):
+        topics.append("Postoperative hemorrhage: Jackson-Pratt (JP) bulb closed suction, dressing reinforcement (<24 hr post-op) & hypovolemic shock cues")
     if scores["risk_recognition"] < 80 or not room.get("pca_paused"):
         topics.append("Opioid-induced respiratory depression: PCA safety, fall precautions (side rails) & naloxone")
     if any(a == "ALLERGY_CROSS_SENSITIVITY_ERROR" for a in actions) or not sc.get("allergy_flagged"):

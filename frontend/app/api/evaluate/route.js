@@ -26,6 +26,7 @@ const TRAP_CODES = new Set([
   'CONTINUE_BASAL_TRAP',
   'ALLERGY_CROSS_SENSITIVITY_ERROR',
   'REMOVE_PRIMARY_DRESSING_TRAP',
+  'LEAVE_JP_OPEN_TRAP',
 ]);
 
 const CRITICAL_CODES = new Set([
@@ -46,6 +47,7 @@ const INTERVENTION_CODES = new Set([
   'CEFAZOLIN_HELD_ALLERGY',
   'INITIATE_CRYSTALLOID_BOLUS',
   'REMOVE_PRIMARY_DRESSING_TRAP',
+  'LEAVE_JP_OPEN_TRAP',
 ]);
 
 const ABC_CODES = new Set([
@@ -173,7 +175,6 @@ export async function POST(request) {
     const sbarCorrect = Boolean(qCorrect.q1_sbar);
     const abgCorrect = Boolean(qCorrect.q2_abg);
     const hemorrhageQCorrect = Boolean(qCorrect.q3_hemorrhage_jp);
-    const dehiscenceQCorrect = Boolean(qCorrect.q4_dehiscence_evisceration);
 
     const endReason = payload.end_reason || 'STUDENT_CONCLUDED';
     const endedCodeBlue = endReason === 'CODE_BLUE_FAILURE';
@@ -243,7 +244,7 @@ export async function POST(request) {
     if (abgCorrect) {
       ledger.add(
         'knowledge',
-        10,
+        20,
         'Correctly interpreted the ABG (uncompensated respiratory acidosis) and selected naloxone.'
       );
     } else {
@@ -251,20 +252,6 @@ export async function POST(request) {
         'knowledge',
         0,
         'Missed the ABG interpretation / opioid reversal exit question.'
-      );
-    }
-
-    if (dehiscenceQCorrect) {
-      ledger.add(
-        'knowledge',
-        10,
-        "Correctly selected sterile warm saline-moistened dressings and Low Fowler's (knees flexed) for wound evisceration."
-      );
-    } else {
-      ledger.add(
-        'knowledge',
-        0,
-        'Missed the wound dehiscence & evisceration emergency exit question.'
       );
     }
 
@@ -530,6 +517,10 @@ export async function POST(request) {
         -20,
         "Peeled off the surgeon's primary laparotomy dressing (<24 hr post-op), disrupting hemostatic clots.",
       ],
+      LEAVE_JP_OPEN_TRAP: [
+        -15,
+        'Left the JP bulb uncompressed and open to air, eliminating closed suction and creating an infection portal.',
+      ],
       CONTINUE_BASAL_TRAP: [-15, 'Chose to continue the basal morphine infusion.'],
     };
 
@@ -552,7 +543,7 @@ export async function POST(request) {
     if (payload.stabilized_at_end) {
       ledger.add(
         'clinical_judgment',
-        30,
+        35,
         'Patient met full stabilization criteria (SpO2 ≥ 95%, RR ≥ 14, PCA paused, JP surgical hemorrhage assessed).'
       );
     } else if (endSpo2 >= 90 && !endedCodeBlue) {
@@ -695,14 +686,15 @@ export async function POST(request) {
     }
 
     const topics = [];
-    if (!room.jp_assessed || !hemorrhageQCorrect || actions.includes('REMOVE_PRIMARY_DRESSING_TRAP')) {
+    if (
+      !room.jp_assessed ||
+      !hemorrhageQCorrect ||
+      sqCorrect.sq_surgical_wound === false ||
+      actions.includes('REMOVE_PRIMARY_DRESSING_TRAP') ||
+      actions.includes('LEAVE_JP_OPEN_TRAP')
+    ) {
       topics.push(
-        'Postoperative hemorrhage: Jackson-Pratt (JP) bulb suction, dressing reinforcement & hypovolemic shock cues'
-      );
-    }
-    if (!dehiscenceQCorrect || sqCorrect.sq_surgical_wound === false) {
-      topics.push(
-        "Abdominal wound dehiscence & evisceration emergency care (warm sterile saline dressings & Low Fowler's)"
+        'Postoperative hemorrhage: Jackson-Pratt (JP) bulb closed suction, dressing reinforcement (<24 hr post-op) & hypovolemic shock cues'
       );
     }
     if (scores.risk_recognition < 80 || !room.pca_paused) {

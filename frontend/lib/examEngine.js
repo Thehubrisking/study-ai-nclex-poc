@@ -87,11 +87,15 @@ export function computeVitals(state, scenario) {
     v.spo2 += d.spo2_delta || -3;
   }
 
-  // 5. Branch A: full cardiopulmonary + surgical hemorrhage stabilization
+  // 5. Branch A: full cardiopulmonary + surgical stabilization
+  const stabCfg = ex.stabilization_criteria || {};
+  const minBed = stabCfg.bed_angle_min ?? 30;
+  const maxBed = stabCfg.bed_angle_max ?? 90;
+  const bedOptimal = state.bedAngle >= minBed && state.bedAngle <= maxBed;
   if (
     state.pcaPaused &&
     device &&
-    state.bedAngle >= 30 &&
+    bedOptimal &&
     state.jpAssessed &&
     (state.crystalloidBolus || !state.hemorrhageShock)
   ) {
@@ -122,9 +126,13 @@ export function computeVitals(state, scenario) {
 
 export function isStabilized(vitals, state, scenario) {
   const c = scenario.exam_config.stabilization_criteria;
+  const bedMin = c.bed_angle_min ?? 0;
+  const bedMax = c.bed_angle_max ?? 90;
+  const bedOk = c.bed_angle_min !== undefined ? state.bedAngle >= bedMin && state.bedAngle <= bedMax : true;
   return (
     vitals.spo2 >= c.spo2_min &&
     vitals.rr >= c.rr_min &&
+    bedOk &&
     (!c.requires_pca_paused || Boolean(state.pcaPaused)) &&
     (!c.requires_jp_assessed || Boolean(state.jpAssessed)) &&
     !['toxic_bolus', 'toxic_flush', 'crash'].includes(state.opioidLevel)
@@ -132,7 +140,8 @@ export function isStabilized(vitals, state, scenario) {
 }
 
 export function isNaloxoneIndicated(vitals, scenario) {
-  const ind = scenario.exam_config.naloxone.indication;
+  const ind = scenario.exam_config.naloxone?.indication;
+  if (!ind) return false;
   return vitals.spo2 < ind.spo2_below || vitals.rr <= ind.rr_at_or_below;
 }
 
