@@ -151,16 +151,16 @@
         {
           "id": "jp_dressing",
           "label": "JP Drain & Dressing (Live Clip)",
-          "video_url": "/clinical-media/jp_drain_hemorrhage.mp4",
-          "poster_url": "/clinical-media/jp_drain_dressing_ref.jpg",
-          "caption": "Situational Clinical Clip: Expanding sanguineous strikethrough on midline laparotomy gauze, LUQ gastrostomy wafer, and RLQ Jackson-Pratt bulb drain filling with >100 mL/hr bright-red blood."
+          "video_url": "/clinical-media/jp_drain_hemorrhage.mp4?v=omni1",
+          "poster_url": "/clinical-media/jp_abdomen_poster.jpg?v=omni1",
+          "caption": "Bedside Abdominal View: Midline laparotomy gauze with bright-red sanguineous strikethrough, LUQ gastrostomy wafer, and RLQ Jackson-Pratt bulb drain (>100 mL/hr sanguineous output)."
         },
         {
           "id": "wound_complications",
           "label": "Dehiscence & Evisceration (Live Clip)",
-          "video_url": "/clinical-media/wound_dehiscence_evisceration.mp4",
-          "poster_url": "/clinical-media/wound_dehiscence_evisceration_fig31_2.jpg",
-          "caption": "Situational Complication Clip: Abdominal suture-line fascial separation (dehiscence) vs. protruding bowel loops (evisceration) requiring sterile warm saline-moistened gauze + Low Fowler's with knees flexed."
+          "video_url": "/clinical-media/wound_dehiscence_evisceration.mp4?v=omni1",
+          "poster_url": "/clinical-media/dehiscence_abdomen_poster.jpg?v=omni1",
+          "caption": "Abdominal Complication View: Separated midline laparotomy sutures (dehiscence) with protruding loop of small bowel (evisceration) and sterile moistened dressing protection."
         }
       ],
       "actions": [
