@@ -58,8 +58,8 @@
 - **SME Sign-Off:** `[ ] Approved` / `[ ] Revise: ______________________`
 
 ### `sq_surgical_wound` — Abdominal Assessment (`Reduction of Risk Potential`)
-- **Stem:** Based on your visual inspection of the patient's abdomen and surgical drains in the bedside video, what is the priority nursing interpretation and action?
-- **Approved Key:** **`C`** — *"Active postoperative hemorrhage — reinforce over the intact primary gauze, empty/measure and re-compress the JP bulb to restore negative suction, initiate isotonic fluid support per order, and notify the surgeon STAT."*
+- **Stem:** Abdominal Video Check: Based on your visual observation of the patient's abdomen in the live bedside clip, what devices and clinical findings are present?
+- **Approved Key:** **`B`** — *"Midline surgical gauze with bright-red sanguineous strikethrough, left-upper-quadrant gastrostomy (G-tube) wafer with clamped tube, and an expanded right-lower-quadrant Jackson-Pratt (JP) bulb filled with dark-red blood."*
 - **SME Sign-Off:** `[ ] Approved` / `[ ] Revise: ______________________`
 
 ---
