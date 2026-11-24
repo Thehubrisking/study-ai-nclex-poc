@@ -1676,6 +1676,8 @@ const _headUp = new THREE.Vector3();
 const _headFront = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 
+const PATIENT_GLB_URL = '/models/patient.glb?v=male01_v2';
+
 function PatientAndWristband({
   bedAngle,
   o2Device,
@@ -1690,10 +1692,12 @@ function PatientAndWristband({
   isSelected,
   onSelectObject,
 }) {
-  const { scene } = useGLTF('/models/patient.glb');
+  const { scene } = useGLTF(PATIENT_GLB_URL);
   const materials = useRef([]);
   const currAngleRef = useRef(0);
   const headOverlayRef = useRef();
+  const leftWristRef = useRef();
+  const rightHandIvRef = useRef();
   const maskRef = useRef();
 
   // Derive active patient verbal assessment cue from scenario_hypoxia.json
@@ -1762,7 +1766,8 @@ function PatientAndWristband({
   );
 
   useLayoutEffect(() => {
-    const mats = [];
+    const skinMats = [];
+    const allMats = [];
     scene.traverse((m) => {
       if (m.isMesh) {
         // Skip shadow-map skinning & CPU SkinnedMesh.raycast (which otherwise transforms
@@ -1773,11 +1778,23 @@ function PatientAndWristband({
         m.raycast = () => {};
         const list = Array.isArray(m.material) ? m.material : [m.material];
         for (const mat of list) {
-          if (mat && mat.isMeshStandardMaterial) mats.push(mat);
+          if (!mat || !mat.isMeshStandardMaterial) continue;
+          allMats.push(mat);
+          const mname = (mat.name || '').toLowerCase();
+          if (mname.includes('gown')) {
+            mat.side = THREE.DoubleSide;
+            mat.roughness = 0.88;
+            mat.metalness = 0.0;
+          } else if (mname.includes('eye')) {
+            mat.roughness = 0.06;
+            mat.metalness = 0.0;
+          } else {
+            skinMats.push(mat);
+          }
         }
       }
     });
-    materials.current = mats;
+    materials.current = skinMats.length > 0 ? skinMats : allMats;
 
     const capture = (name) => {
       const bone = scene.getObjectByName(name);
@@ -1817,7 +1834,9 @@ function PatientAndWristband({
       1 - 0.32 * t + pallor * 0.04,
       1 - 0.06 * t + pallor * 0.06
     );
-    const targetRoughness = crystalloidBolus ? 0.62 : hemorrhageShock ? 0.28 : 0.38;
+    // Multiply against Male 01's PBR roughnessMap (~0.55) so normal skin reads matte-natural (~0.46)
+    // and hemorrhagic shock shows a subtle diaphoretic sheen (~0.36) without looking oily
+    const targetRoughness = crystalloidBolus ? 0.92 : hemorrhageShock ? 0.66 : 0.84;
     for (const m of materials.current) {
       m.color.copy(_tint);
       m.roughness = targetRoughness; // Diaphoresis: cool clammy sweat sheen when hypovolemic
@@ -1869,38 +1888,35 @@ function PatientAndWristband({
       0
     );
     pose('Spine02', -elevRad * 0.25 - breath * breathAmp, 0, 0);
-    pose('L_Clavicle', -breath * breathAmp * 0.6, 0, 0);
-    // R_Clavicle has a -0.21 rad bind tilt relative to L_Clavicle; +0.21 levels the right shoulder
-    // to the exact same height (y = 1.185m) as the left shoulder.
-    pose('R_Clavicle', 0.21 - breath * breathAmp * 0.6, 0, 0);
+    pose('L_Clavicle', -breath * breathAmp * 0.5, 0, 0);
+    pose('R_Clavicle', -breath * breathAmp * 0.5, 0, 0);
     pose(
       'NeckTwist01',
-      -0.4 + elevRad * 0.15 + (isBradypneic ? 0.18 : 0),
+      -0.16 + elevRad * 0.12 + (isBradypneic ? 0.14 : 0),
       headRestlessYaw * 0.6,
-      isBradypneic ? 0.22 : 0
+      isBradypneic ? 0.18 : 0
     );
     pose('Head', breath * 0.03, headRestlessYaw * 0.4, 0);
 
-    // Left arm rests naturally along the patient's left side on top of the mattress for Wristband ID scan
+    // Left arm (Male 01 A-pose rig) rests gently along the patient's left side clear of backrest pad
     pose(
       'L_Upperarm',
-      elevRad * 0.25,
-      -Math.max(0, elevRad) * 0.08,
-      -1.4
+      -0.16 + elevRad * 0.2,
+      -Math.max(0, elevRad) * 0.05,
+      -0.58
     );
-    pose('L_Forearm', 0, 0.42 + breath * 0.03, 0);
-    pose('L_Hand', 0, 0.42, 0);
+    pose('L_Forearm', -0.22 + breath * 0.02, 0, -0.10);
+    pose('L_Hand', -0.06, 0, 0);
 
-    // Right arm rests symmetrically along the patient's right side on top of the mattress,
-    // with the right hand positioned directly under the IV cannula.
+    // Right arm rests symmetrically along the patient's right side under the IV cannula
     pose(
       'R_Upperarm',
-      elevRad * 0.25,
-      Math.max(0, elevRad) * 0.08,
-      1.4
+      -0.16 + elevRad * 0.2,
+      Math.max(0, elevRad) * 0.05,
+      0.58
     );
-    pose('R_Forearm', 0, -0.42 - breath * 0.03, 0);
-    pose('R_Hand', 0, -0.42, 0);
+    pose('R_Forearm', -0.22 + breath * 0.02, 0, 0.10);
+    pose('R_Hand', -0.06, 0, 0);
 
     // Subtle restless lower-limb shift when hypoxic
     const legShift = isDistressed ? Math.sin(elapsed * 1.3) * 0.05 : 0;
@@ -1908,8 +1924,7 @@ function PatientAndWristband({
     pose('R_Thigh', -legShift, 0, 0);
 
     if (headOverlayRef.current) {
-      // Track the real Head bone so the O2 mask stays on the nose at every bed angle and while the
-      // head tosses/rolls. Head bone +Y runs toward the crown; the face points along -Z.
+      // Track the real Head bone so the O2 mask covers both nose bridge and mouth at every bed angle
       const headBone = scene.getObjectByName('Head');
       const overlay = headOverlayRef.current;
       if (headBone && overlay.parent) {
@@ -1918,13 +1933,31 @@ function PatientAndWristband({
         headBone.getWorldQuaternion(_headQuat);
         _headUp.set(0, 1, 0).applyQuaternion(_headQuat);
         _headFront.set(0, 0, -1).applyQuaternion(_headQuat);
-        _headPos.addScaledVector(_headUp, 0.1).addScaledVector(_headFront, 0.19);
+        _headPos.addScaledVector(_headUp, 0.105).addScaledVector(_headFront, 0.145);
         overlay.parent.worldToLocal(overlay.position.copy(_headPos));
         if (maskRef.current) {
           // Cone tip (+Y) points away from the face so its open base sits over nose & mouth
           maskRef.current.quaternion.setFromUnitVectors(_yAxis, _headFront);
         }
       }
+    }
+
+    // Keep Left ID Wristband & Right Hand IV Cannula locked cleanly onto Male 01's wrists across Fowler's angles
+    const lHandBone = scene.getObjectByName('L_Hand');
+    if (lHandBone && leftWristRef.current?.parent) {
+      lHandBone.updateWorldMatrix(true, false);
+      lHandBone.getWorldPosition(_headPos);
+      _headPos.y += 0.026;
+      _headPos.z -= 0.015;
+      leftWristRef.current.parent.worldToLocal(leftWristRef.current.position.copy(_headPos));
+    }
+    const rHandBone = scene.getObjectByName('R_Hand');
+    if (rHandBone && rightHandIvRef.current?.parent) {
+      rHandBone.updateWorldMatrix(true, false);
+      rHandBone.getWorldPosition(_headPos);
+      _headPos.y += 0.028;
+      _headPos.z += 0.025;
+      rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_headPos));
     }
   });
 
@@ -2035,7 +2068,7 @@ function PatientAndWristband({
       </group>
 
       {/* Procedural IV Cannula on Patient's Right Hand */}
-      <group position={[-0.337, 1.135, -0.14]}>
+      <group ref={rightHandIvRef} position={[-0.365, 1.155, -0.13]}>
         <mesh>
           <boxGeometry args={[0.055, 0.006, 0.07]} />
           <meshStandardMaterial
@@ -2053,11 +2086,12 @@ function PatientAndWristband({
 
       {/* Interactive Patient ID Wristband on Patient's Left Wrist */}
       <group
-        position={[0.34, 1.14, -0.16]}
+        ref={leftWristRef}
+        position={[0.405, 1.16, -0.17]}
         onClick={stop(() => onSelectObject('wristband'))}
       >
-        <mesh rotation={[0.2, 0, 0.15]} castShadow>
-          <torusGeometry args={[0.042, 0.012, 12, 24]} />
+        <mesh rotation={[0.32, 0.1, 0]} castShadow>
+          <torusGeometry args={[0.044, 0.011, 12, 24]} />
           <meshStandardMaterial
             color={verifiedId ? '#10b981' : '#ffffff'}
             emissive={verifiedId ? '#10b981' : '#38bdf8'}
@@ -2770,11 +2804,11 @@ function SplineTube({
   );
 }
 
-/** O2 mask attachment point (world) at 0° / 30° / 60° head-of-bed, from the patient's Head bone. */
+/** O2 mask attachment point (world) at 0° / 30° / 60° head-of-bed, measured from Male 01's Head bone. */
 const MASK_AT_ANGLE = [
-  [0, [0.027, 1.421, -0.891]],
-  [30, [0.019, 1.692, -0.71]],
-  [60, [0.012, 1.856, -0.435]],
+  [0, [0.0, 1.325, -1.025]],
+  [30, [-0.006, 1.666, -0.853]],
+  [60, [-0.017, 1.893, -0.55]],
 ];
 function maskPointForAngle(deg) {
   const a = THREE.MathUtils.clamp(deg, 0, 60);
@@ -2789,21 +2823,21 @@ function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle 
   const [mx, my, mz] = maskPointForAngle(bedAngle);
   return (
     <group>
-      {/* Oxygen tubing only exists once the candidate applies O2 (no visual hint beforehand).
-          Its far end follows the patient's face as the head of the bed is raised. */}
+      {/* Slim translucent medical oxygen tubing curving smoothly from humidifier bottle under chin into mask */}
       {o2Device && (
       <SplineTube
-        color={o2Device ? '#6ee7b7' : '#f4f6f9'}
-        emissive={o2Device ? '#10b981' : '#000000'}
-        emissiveIntensity={o2Device ? 1.2 : 0}
-        radius={0.018}
+        color="#6ee7b7"
+        emissive="#10b981"
+        emissiveIntensity={0.85}
+        opacity={0.78}
+        radius={0.0065}
         points={[
           [-0.88, 1.08, -1.83],
-          [-0.84, 0.96, -1.62],
-          [-0.6, 1.02, -1.32],
-          [-0.3, my - 0.05, mz - 0.2],
-          [mx - 0.1, my + 0.02, mz - 0.04],
-          [mx - 0.03, my - 0.02, mz],
+          [-0.78, 0.98, -1.52],
+          [-0.52, 1.08, -1.18],
+          [-0.24, Math.max(1.16, my - 0.18), mz - 0.04],
+          [mx - 0.04, my - 0.055, mz + 0.045],
+          [mx, my - 0.015, mz + 0.015],
         ]}
       />
       )}
@@ -3194,7 +3228,7 @@ export default Room3D;
 
 useGLTF.preload('/models/hospital_bed_carlos.glb');
 useGLTF.preload('/models/pillow.glb');
-useGLTF.preload('/models/patient.glb');
+useGLTF.preload(PATIENT_GLB_URL);
 useGLTF.preload(NURSE_GLB_URL);
 useGLTF.preload('/models/heart_monitor.glb');
 useGLTF.preload('/models/ventilator.glb');
