@@ -2174,175 +2174,142 @@ function PatientAndWristband({
   );
 }
 
-/* ---------- 2B. Post-Exploratory Laparotomy Abdominal Dressing, JP Bulb Drain & G-Tube ---------- */
+/* ---------- 2B. Post-Exploratory Laparotomy 3D Attention Emote (Triggers Situational Clinical Video) ---------- */
 function SurgicalDrainsAndDressing3D({
   bedAngle = 0,
   jpAssessed = false,
   primaryDressingRemoved = false,
   surgicalObj,
-  isCompleted,
   isSelected,
   onSelectObject,
 }) {
-  const groupRef = useRef();
+  const [hovered, setHovered] = useState(false);
+  const ctx = React.useContext(HotspotContext);
+  if (!ctx.visible || !surgicalObj) return null;
+
   const elevY = Math.sin(THREE.MathUtils.degToRad(Math.max(0, bedAngle))) * 0.065;
-  const elevRotX = -THREE.MathUtils.degToRad(Math.max(0, bedAngle) * 0.28);
-  const surfY = 1.408 + elevY;
+  const stationLabel = ctx.labels[surgicalObj.id] || 'Surgical Dressing & Drains';
+
+  // Expressive clinical emote state (neutral/attention-calling without low-poly 3D clutter)
+  const emoteGlyph = primaryDressingRemoved ? '⚠️' : jpAssessed ? '🩹' : '🩸';
+  const accentColor = primaryDressingRemoved
+    ? '#ee8572'
+    : isSelected
+      ? '#e8b04b'
+      : jpAssessed
+        ? '#6fd1a9'
+        : '#f28b82';
 
   return (
-    <group onClick={stop(() => onSelectObject('surgical_site'))}>
-      {/* Abdominal surface group sitting flush atop the parted hospital gown over the abdomen */}
-      <group
-        ref={groupRef}
-        position={[0, surfY, -0.16]}
-        rotation={[elevRotX, 0, 0]}
-      >
-        {/* Parted gown surgical inspection window exposing abdominal skin */}
-        <RoundedBox args={[0.31, 0.008, 0.26]} position={[0, -0.002, 0.01]} radius={0.004}>
-          <meshStandardMaterial color="#8d6249" roughness={0.58} />
-        </RoundedBox>
-        {/* Folded white gown hems framing top & bottom of the exposed abdominal window */}
-        <RoundedBox args={[0.33, 0.012, 0.022]} position={[0, 0.002, -0.125]} radius={0.005}>
-          <meshStandardMaterial color="#e8eef5" roughness={0.85} />
-        </RoundedBox>
-        <RoundedBox args={[0.33, 0.012, 0.022]} position={[0, 0.002, 0.145]} radius={0.005}>
-          <meshStandardMaterial color="#e8eef5" roughness={0.85} />
-        </RoundedBox>
-
-        {/* 1. Midline Laparotomy Sterile Gauze Dressing + Sanguineous Strikethrough */}
-        {!primaryDressingRemoved ? (
-          <group position={[0, 0.009, 0.015]}>
-            <RoundedBox args={[0.115, 0.014, 0.195]} radius={0.004} castShadow>
-              <meshStandardMaterial color="#f8fafc" roughness={0.88} />
-            </RoundedBox>
-            {/* Bright-red sanguineous strikethrough spot (matches clinical reference photo) */}
-            <mesh position={[0.004, 0.008, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
-              <circleGeometry args={[0.038, 20]} />
-              <meshStandardMaterial
-                color="#991b1b"
-                roughness={0.42}
-                polygonOffset
-                polygonOffsetFactor={-1}
-              />
-            </mesh>
-            <mesh position={[-0.012, 0.0085, -0.024]} rotation={[-Math.PI / 2, 0, 0]}>
-              <circleGeometry args={[0.024, 16]} />
-              <meshStandardMaterial
-                color="#dc2626"
-                roughness={0.48}
-                polygonOffset
-                polygonOffsetFactor={-2}
-              />
-            </mesh>
-            {/* Secondary sterile reinforcement pad placed OVER primary dressing once nurse assesses hemorrhage */}
-            {jpAssessed && (
-              <RoundedBox
-                args={[0.135, 0.012, 0.215]}
-                position={[0, 0.013, 0]}
-                radius={0.004}
-                castShadow
-              >
-                <meshStandardMaterial color="#ffffff" roughness={0.85} />
-              </RoundedBox>
-            )}
-          </group>
-        ) : (
-          /* Exposed erythematous suture line if candidate triggered the "peel off primary dressing" trap */
-          <mesh position={[0, 0.006, 0.015]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[0.026, 0.17]} />
-            <meshStandardMaterial color="#7f1d1d" roughness={0.35} />
-          </mesh>
-        )}
-
-        {/* 2. LUQ Gastrostomy (G-Tube) Hydrocolloid Exit Wafer + Clamped Decompression Catheter */}
-        <group position={[0.105, 0.006, -0.045]} rotation={[0, 0, -0.1]}>
-          <RoundedBox args={[0.064, 0.008, 0.064]} radius={0.003}>
-            <meshStandardMaterial color="#f3cfa2" roughness={0.65} />
-          </RoundedBox>
-          <mesh position={[0, 0.009, 0]}>
-            <cylinderGeometry args={[0.012, 0.014, 0.012, 16]} />
-            <meshStandardMaterial color="#e2e8f0" roughness={0.4} />
-          </mesh>
-          {/* Blue G-tube pinch clamp */}
-          <mesh position={[0.036, 0.015, 0.028]} rotation={[0.3, 0.4, 0]}>
-            <boxGeometry args={[0.02, 0.01, 0.013]} />
-            <meshStandardMaterial color="#2563eb" roughness={0.35} />
-          </mesh>
-        </group>
-
-        {/* 3. RLQ Drain Exit Wafer */}
-        <group position={[-0.102, 0.006, 0.048]} rotation={[0, 0, 0.12]}>
-          <RoundedBox args={[0.05, 0.007, 0.05]} radius={0.003}>
-            <meshStandardMaterial color="#f3cfa2" roughness={0.65} />
-          </RoundedBox>
-        </group>
-      </group>
-
-      {/* Curved Gastrostomy Pigtail Tube (LUQ) */}
-      <SplineTube
-        color="#fef08a"
-        opacity={0.82}
-        radius={0.005}
-        points={[
-          [0.105, surfY + 0.012, -0.205],
-          [0.18, surfY - 0.01, -0.16],
-          [0.25, surfY - 0.09, -0.10],
-          [0.30, 1.19, -0.03],
-        ]}
-      />
-
-      {/* Jackson-Pratt (JP) Silicone Drain Tubing + Ovoid Grenade Bulb at Right Bedside */}
-      <SplineTube
-        color="#dc2626"
-        opacity={0.88}
-        radius={0.0048}
-        points={[
-          [-0.102, surfY + 0.01, -0.112],
-          [-0.19, surfY - 0.02, -0.09],
-          [-0.27, 1.29, -0.06],
-          [-0.32, 1.22, -0.035],
-        ]}
-      />
-
-      {/* JP Ovoid Bulb Reservoir — expanded & blood-filled initially; compressed flat once suction is restored */}
-      <group
-        position={[-0.325, 1.17, -0.03]}
-        rotation={[0.15, 0, 0.28]}
-        scale={jpAssessed ? [1, 1, 0.46] : [1, 1, 1]}
-      >
-        {/* Translucent silicone bulb shell */}
-        <mesh scale={[0.042, 0.062, 0.042]} castShadow>
-          <sphereGeometry args={[1, 20, 16]} />
-          <meshPhysicalMaterial {...CLEAR_POLYMER} color="#fecaca" opacity={0.52} />
-        </mesh>
-        {/* Sanguineous blood collection in lower half of bulb (135 mL before emptying, minimal residual after) */}
-        <mesh
-          position={[0, jpAssessed ? -0.028 : -0.009, 0]}
-          scale={jpAssessed ? [0.028, 0.018, 0.028] : [0.038, 0.044, 0.038]}
+    <group position={[0, 1.53 + elevY, -0.14]}>
+      <Html center zIndexRange={[22, 0]}>
+        <style>{`
+          @keyframes studyaiEmoteFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+          }
+          @keyframes studyaiEmotePulse {
+            0% { transform: scale(0.95); opacity: 0.72; }
+            70% { transform: scale(1.48); opacity: 0; }
+            100% { transform: scale(1.48); opacity: 0; }
+          }
+        `}</style>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.currentTarget.blur();
+            onSelectObject('surgical_site');
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          title="Inspect surgical site & watch clinical video"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '6px',
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            animation: 'studyaiEmoteFloat 2.4s ease-in-out infinite',
+          }}
         >
-          <sphereGeometry args={[1, 18, 14]} />
-          <meshStandardMaterial color="#991b1b" roughness={0.28} />
-        </mesh>
-        {/* White top collar & evacuation stopper port */}
-        <mesh position={[0, 0.062, 0]}>
-          <cylinderGeometry args={[0.014, 0.018, 0.015, 16]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.35} />
-        </mesh>
-        <mesh position={[0.013, 0.071, 0]}>
-          <cylinderGeometry args={[0.0055, 0.0055, 0.011, 12]} />
-          <meshStandardMaterial color="#cbd5e1" roughness={0.4} />
-        </mesh>
-      </group>
+          {/* Floating Emote Speech Bubble with Pulsing Attention Halo */}
+          <span
+            style={{
+              position: 'relative',
+              width: '48px',
+              height: '48px',
+              borderRadius: '50%',
+              background: 'rgba(10, 19, 16, 0.90)',
+              border: `2px solid ${accentColor}`,
+              boxShadow: `0 10px 24px rgba(0, 0, 0, 0.48), 0 0 0 4px ${accentColor}26`,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transform: hovered || isSelected ? 'scale(1.10)' : 'scale(1)',
+              transition: 'transform 0.16s ease',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }}
+          >
+            {!jpAssessed && (
+              <span
+                style={{
+                  position: 'absolute',
+                  inset: -3,
+                  borderRadius: '50%',
+                  border: `2px solid ${accentColor}`,
+                  animation: 'studyaiEmotePulse 1.9s cubic-bezier(0.2, 0.6, 0.3, 1) infinite',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            <span style={{ fontSize: '21px', lineHeight: 1 }}>{emoteGlyph}</span>
+            {/* Mini Play-Video Badge on bottom-right corner of the emote */}
+            <span
+              style={{
+                position: 'absolute',
+                right: '-3px',
+                bottom: '-2px',
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                background: '#1e4a38',
+                border: '1.5px solid #6fd1a9',
+                color: '#eaf2ee',
+                fontSize: '8.5px',
+                fontWeight: 900,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              ▶
+            </span>
+          </span>
 
-      {surgicalObj && (
-        <InteractiveHotspot
-          position={[-0.22, 1.56, -0.08]}
-          objConfig={surgicalObj}
-          isCompleted={isCompleted}
-          isSelected={isSelected}
-          onSelect={onSelectObject}
-        />
-      )}
+          {/* Pointer tail + Label Pill */}
+          <span
+            style={{
+              padding: '3px 11px',
+              borderRadius: '999px',
+              background: isSelected ? '#143528' : 'rgba(10, 19, 16, 0.90)',
+              border: `1px solid ${hovered || isSelected ? accentColor : '#2a4136'}`,
+              color: '#eaf2ee',
+              fontSize: '11px',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 6px 16px rgba(0, 0, 0, 0.38)',
+            }}
+          >
+            {hovered ? `${stationLabel} · Watch clip ▶` : stationLabel}
+          </span>
+        </button>
+      </Html>
     </group>
   );
 }
