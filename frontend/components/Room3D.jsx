@@ -1676,7 +1676,7 @@ const _headUp = new THREE.Vector3();
 const _headFront = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 
-const PATIENT_GLB_URL = '/models/patient.glb?v=accurig_v1';
+const PATIENT_GLB_URL = '/models/patient.glb?v=clo_gown_v3';
 const PATIENT_SCALE = 1.18;
 
 function PatientAndWristband({
@@ -1887,23 +1887,23 @@ function PatientAndWristband({
       setNurseCharRotation(B.CC_Base_JawRoot, jawOpen, 0, 0);
     }
 
-    // Left & Right AccuRIG arms rest symmetrically along the mattress beside the hips
+    // Left & Right AccuRIG arms rest symmetrically along the mattress beside the hips across 0-60 deg Fowler's
     setNurseCharRotation(
       B.CC_Base_L_Upperarm,
-      0.22 - elevRad * 0.24,
+      0.06 - elevRad * 0.44,
       0,
-      -0.48
+      -0.44
     );
-    setNurseCharRotation(B.CC_Base_L_Forearm, 0.18 - breath * 0.02, 0, -0.08);
+    setNurseCharRotation(B.CC_Base_L_Forearm, 0.52 - elevRad * 0.08 - breath * 0.02, 0, -0.06);
     setNurseCharRotation(B.CC_Base_L_Hand, 0.06, 0, 0);
 
     setNurseCharRotation(
       B.CC_Base_R_Upperarm,
-      0.22 - elevRad * 0.24,
+      0.06 - elevRad * 0.44,
       0,
-      0.48
+      0.44
     );
-    setNurseCharRotation(B.CC_Base_R_Forearm, 0.18 - breath * 0.02, 0, 0.08);
+    setNurseCharRotation(B.CC_Base_R_Forearm, 0.52 - elevRad * 0.08 - breath * 0.02, 0, 0.06);
     setNurseCharRotation(B.CC_Base_R_Hand, 0.06, 0, 0);
 
     const legShift = isDistressed ? Math.sin(elapsed * 1.3) * 0.045 : 0;
