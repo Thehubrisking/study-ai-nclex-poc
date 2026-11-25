@@ -173,6 +173,7 @@ export default function StudyAiExamPage() {
   const [platformParams, setPlatformParams] = useState({
     sessionId: null,
     studentId: null,
+    studentName: null,
     callbackUrl: null,
     returnUrl: null,
   });
@@ -446,10 +447,11 @@ export default function StudyAiExamPage() {
     const sp = new URLSearchParams(window.location.search);
     const sessionId = sp.get('session_id');
     const studentId = sp.get('student_id');
+    const studentName = sp.get('student_name');
     const callbackUrl = sp.get('callback_url') || process.env.NEXT_PUBLIC_PLATFORM_CALLBACK_URL || null;
     const returnUrl = sp.get('return_url') || null;
-    if (sessionId || studentId || callbackUrl || returnUrl) {
-      setPlatformParams({ sessionId, studentId, callbackUrl, returnUrl });
+    if (sessionId || studentId || studentName || callbackUrl || returnUrl) {
+      setPlatformParams({ sessionId, studentId, studentName, callbackUrl, returnUrl });
     }
     const autostart =
       sp.get('autostart') === '1' ||
@@ -913,9 +915,15 @@ export default function StudyAiExamPage() {
       ? `${nameParts[nameParts.length - 1].toUpperCase()}, ${nameParts.slice(0, -1).join(' ')}`
       : scenarioData.patient.name;
 
-  // Recent 3 candidate actions for the Figma 36:138..36:143 trace chips
+  // Recent 3 candidate bedside actions for the Figma 36:138..36:143 trace chips
+  // (Hide internal physiological/system/penalty telemetry events from the student HUD!)
   const recentTrace = actionTimeline
-    .filter((e) => e.action !== 'BEGIN_TIMED_ASSESSMENT' && e.action !== 'BEDSIDE_PHASE_END')
+    .filter(
+      (e) =>
+        Boolean(e.object_id) &&
+        !['PENALTY', 'PHYSIOLOGIC_EVENT', 'SYSTEM'].includes(e.classification) &&
+        e.action !== 'UNRECOGNIZED_HEMORRHAGE_ESCALATION'
+    )
     .slice(-3);
 
   const totalStations = EX.walk_bar_order.length;
@@ -1158,21 +1166,17 @@ export default function StudyAiExamPage() {
                     cycleQuality();
                     e.currentTarget.blur();
                   }}
-                  title={`Render quality: ${QUALITY_TIERS[quality].label} (${qualityStats.fps} FPS)`}
+                  title={`Graphics quality: ${QUALITY_TIERS[quality].label}`}
                 >
                   <span
                     style={{
                       width: '7px',
                       height: '7px',
                       borderRadius: '50%',
-                      background:
-                        qualityStats.fps >= 45 ? '#6fd1a9' : qualityStats.fps >= 25 ? '#e8b04b' : '#ee8572',
+                      background: '#6fd1a9',
                     }}
                   />
-                  {!isPhone && QUALITY_TIERS[quality].label}
-                  <span className="font-mono-clinical" style={{ color: '#8ca69b', fontSize: '11px' }}>
-                    {qualityStats.fps}fps
-                  </span>
+                  {QUALITY_TIERS[quality].label}
                 </button>
 
                 <button style={pillControl} onClick={handleToggleAudio} title="Toggle clinical audio">
@@ -1692,7 +1696,12 @@ export default function StudyAiExamPage() {
       )}
 
       {examStage === EXAM_STAGES.PRE_BRIEFING && (
-        <BriefingModal scenario={scenarioData} darkMode={darkMode} onBegin={handleBegin} />
+        <BriefingModal
+          scenario={scenarioData}
+          darkMode={darkMode}
+          studentName={platformParams.studentName}
+          onBegin={handleBegin}
+        />
       )}
 
       {examStage === EXAM_STAGES.EXIT_QUESTIONS && endInfo && (
@@ -1715,6 +1724,7 @@ export default function StudyAiExamPage() {
           payload={submission.payload}
           result={submission.result}
           error={submission.error}
+          studentName={platformParams.studentName}
           returnUrl={platformParams.returnUrl}
           onRetry={() => submitAttempt(submission.payload)}
           onNewAttempt={handleNewAttempt}

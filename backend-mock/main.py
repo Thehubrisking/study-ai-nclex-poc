@@ -146,8 +146,15 @@ def domain_status(score: int, domain: str) -> str:
 
 
 @app.get("/api/health")
+@app.get("/api/evaluate")
 def health_check():
-    return {"status": "ok", "service": "Study AI NCLEX-RN NGN Evaluation Engine v3.1"}
+    scenario = load_scenario()
+    return {
+        "status": "ok",
+        "service": "StudyAI NCLEX-RN 3D Simulation & NGN Evaluation Engine",
+        "version": scenario.get("version", "3.2"),
+        "scenario_id": scenario.get("scenario_id", "nclex_poc_laparotomy_v3"),
+    }
 
 
 @app.get("/api/scenario")

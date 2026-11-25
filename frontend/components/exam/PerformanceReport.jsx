@@ -5,12 +5,10 @@ import {
   RotateCcw,
   BarChart3,
   GitBranch,
-  Braces,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   Loader2,
-  Copy,
   Sparkles,
   ArrowUpRight,
 } from 'lucide-react';
@@ -190,13 +188,15 @@ export default function PerformanceReport({
   payload,
   result,
   error,
+  studentName,
   returnUrl,
   onRetry,
   onNewAttempt,
 }) {
   const [tab, setTab] = useState('gap');
-  const [copied, setCopied] = useState(null);
   const [followupChoice, setFollowupChoice] = useState(null);
+  const displayFullName = (studentName || '').trim() || 'Chidinma Okafor';
+  const displayFirstName = displayFullName.split(/\s+/)[0] || 'Candidate';
 
   const dateStr = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -306,6 +306,7 @@ export default function PerformanceReport({
       breadcrumb="Entry assessment · Results"
       completed
       planLabel="Premium plan"
+      studentName={displayFullName}
       floatingSlot={hygeiaFab}
     >
       {/* Eyebrow + Title + Completed Pill (Figma 36:199..36:203) */}
@@ -332,7 +333,7 @@ export default function PerformanceReport({
             lineHeight: 1.12,
           }}
         >
-          Your gap chart, Chidinma
+          Your gap chart, {displayFirstName}
         </h1>
         <span
           style={{
@@ -540,7 +541,7 @@ export default function PerformanceReport({
             </div>
           </div>
 
-          {/* VIEW SWITCHER: Gap Chart Overview | Decision Tree | Raw JSON */}
+          {/* VIEW SWITCHER: Gap Chart Overview | Decision Trace */}
           <div
             style={{
               display: 'flex',
@@ -553,7 +554,6 @@ export default function PerformanceReport({
             {[
               { id: 'gap', label: 'Gap chart overview', icon: BarChart3 },
               { id: 'tree', label: `Decision trace (${result.decision_tree.length})`, icon: GitBranch },
-              { id: 'json', label: 'Raw JSON telemetry', icon: Braces },
             ].map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -1137,82 +1137,6 @@ export default function PerformanceReport({
             </div>
           )}
 
-          {/* TAB 3: RAW JSON TELEMETRY FOR BACKEND HANDOVER */}
-          {tab === 'json' && (
-            <div
-              style={{
-                marginTop: '20px',
-                background: '#ffffff',
-                border: '1px solid #e7eae3',
-                borderRadius: '24px',
-                padding: '26px 28px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '18px',
-              }}
-            >
-              {[
-                ['Payload 1 — Request (POST /api/evaluate)', payload, 'req'],
-                ['Payload 2 — Evaluation Engine Response', result, 'res'],
-              ].map(([title, data, key]) => {
-                const text = JSON.stringify(data, null, 2);
-                return (
-                  <div key={key}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: '8px',
-                      }}
-                    >
-                      <span style={{ fontSize: '13px', fontWeight: 800, color: '#1e4a38' }}>
-                        {title}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(text);
-                          setCopied(key);
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          padding: '5px 12px',
-                          borderRadius: '999px',
-                          background: '#f8faf5',
-                          border: '1px solid #e7eae3',
-                          fontSize: '11.5px',
-                          fontWeight: 700,
-                          color: '#101713',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <Copy size={12} /> {copied === key ? 'Copied' : 'Copy JSON'}
-                      </button>
-                    </div>
-                    <pre
-                      className="font-mono-clinical"
-                      style={{
-                        maxHeight: '300px',
-                        overflow: 'auto',
-                        padding: '14px',
-                        borderRadius: '16px',
-                        background: '#0a1310',
-                        color: '#bfe8d6',
-                        fontSize: '11.5px',
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {text}
-                    </pre>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           {/* BOTTOM DARK FOREST CTA BANNER (Figma 36:294) */}
           <div
             style={{
@@ -1298,7 +1222,7 @@ export default function PerformanceReport({
               </button>
               <button
                 type="button"
-                onClick={() => setTab(tab === 'json' ? 'gap' : 'json')}
+                onClick={() => setTab(tab === 'tree' ? 'gap' : 'tree')}
                 style={{
                   height: '52px',
                   padding: '0 26px',
@@ -1311,7 +1235,7 @@ export default function PerformanceReport({
                   cursor: 'pointer',
                 }}
               >
-                {tab === 'json' ? 'Back to gap chart' : 'Inspect JSON trace'}
+                {tab === 'tree' ? 'Back to gap chart' : 'Review decision trace'}
               </button>
             </div>
           </div>

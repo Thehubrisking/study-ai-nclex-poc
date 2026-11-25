@@ -46,7 +46,11 @@ export function buildOxygenApparatusGroup(o2Device) {
     return { group, portPosition };
   }
 
-  if (o2Device === 'nasal_cannula') {
+  const devKey = String(o2Device).toLowerCase();
+  const isCannula = devKey.includes('cannula');
+  const isNonRebreather = devKey.includes('rebreather');
+
+  if (isCannula) {
     const cannulaMat = new THREE.MeshPhysicalMaterial({
       color: '#bbf7d0',
       emissive: '#10b981',
@@ -258,7 +262,7 @@ export function buildOxygenApparatusGroup(o2Device) {
     const vRing = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 0.005, 18), valveGreenMat);
     vRing.rotation.x = Math.PI / 2;
     valveGroup.add(vRing);
-    if (o2Device === 'non_rebreather') {
+    if (isNonRebreather) {
       const flap = new THREE.Mesh(new THREE.CylinderGeometry(0.0085, 0.0085, 0.0065, 16), flapperWhiteMat);
       flap.rotation.x = Math.PI / 2;
       valveGroup.add(flap);
@@ -286,7 +290,7 @@ export function buildOxygenApparatusGroup(o2Device) {
   portPosition.set(0, 0.021, 0.229);
 
   // 6. Inflated 1-Liter Non-Rebreather Reservoir Bag + One-Way Check-Valve Collar (drapes down over chin/chest)
-  if (o2Device === 'non_rebreather') {
+  if (isNonRebreather) {
     const neckCollar = new THREE.Mesh(
       new THREE.CylinderGeometry(0.0095, 0.011, 0.024, 16),
       valveGreenMat

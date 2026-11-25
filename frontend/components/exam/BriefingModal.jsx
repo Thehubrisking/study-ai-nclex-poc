@@ -64,9 +64,16 @@ export function StudyAiAppShell({
   breadcrumb,
   completed = false,
   planLabel = 'Free pilot',
+  studentName = 'Chidinma Okafor',
   floatingSlot = null,
   children,
 }) {
+  const cleanName = (studentName || '').trim() || 'Chidinma Okafor';
+  const initials = cleanName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('') || 'CO';
   return (
     <div
       className="studyai-shell"
@@ -288,7 +295,7 @@ export function StudyAiAppShell({
                 flexShrink: 0,
               }}
             >
-              CO
+              {initials}
             </div>
             <div style={{ minWidth: 0 }}>
               <div
@@ -301,7 +308,7 @@ export function StudyAiAppShell({
                   textOverflow: 'ellipsis',
                 }}
               >
-                Chidinma Okafor
+                {cleanName}
               </div>
               <div style={{ fontSize: '12px', color: '#6b746a', marginTop: '1px' }}>
                 {planLabel}
@@ -384,7 +391,7 @@ export function StudyAiAppShell({
 /**
  * Entry Assessment Intro Screen — Matches Figma node 35:895 ("Entry assessment intro")
  */
-export default function BriefingModal({ scenario, onBegin }) {
+export default function BriefingModal({ scenario, studentName, onBegin }) {
   const ex = scenario.exam_config;
   const b = ex.briefing;
   const p = scenario.patient;
@@ -415,7 +422,12 @@ export default function BriefingModal({ scenario, onBegin }) {
   ];
 
   return (
-    <StudyAiAppShell breadcrumb="Entry assessment" completed={false} planLabel="Free pilot">
+    <StudyAiAppShell
+      breadcrumb="Entry assessment"
+      completed={false}
+      planLabel="Free pilot"
+      studentName={studentName}
+    >
       {/* Title Row (Figma 35:945 + 35:946) */}
       <div
         style={{

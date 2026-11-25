@@ -23,18 +23,23 @@ study_ai_poc_starter_v2/
     │   ├── layout.jsx                       # Viewport & metadata config (mobile/tablet safe-area ready)
     │   ├── globals.css                      # Liquid-glass design system & responsive mobile/tablet rules
     │   └── api/
-    │       └── evaluate/
-    │           └── route.js                 # Built-in Next.js Serverless POST /api/evaluate route (Vercel ready)
+    │       ├── health/route.js                  # GET /api/health liveness & scenario version probe
+    │       ├── scenario/route.js                # GET /api/scenario authoritative scenario & answer key sync
+    │       └── evaluate/route.js                # POST /api/evaluate serverless NGN scoring engine (Vercel ready)
     ├── components/
-    │   ├── Room3D.jsx                       # Three.js / React Three Fiber 3D clinical room & nurse locomotion
-    │   ├── AdaptiveQuality.jsx              # Dynamic DPR + post-processing EffectComposer resizer
-    │   ├── DraggableGlassPanel.jsx          # Desktop floating drawer / Mobile docked bottom sheet
-    │   ├── VitalsMonitorModal.jsx           # Real-time ECG, SpO2 pleth, Capnography waveforms
+    │   ├── Room3D.jsx                           # Three.js / React Three Fiber 3D clinical room & nurse locomotion
+    │   ├── HospitalRoom.jsx                     # Architectural room shell, headwall & furniture
+    │   ├── AdaptiveQuality.jsx                  # Dynamic DPR quality controller
+    │   ├── DraggableGlassPanel.jsx              # Desktop floating drawer / Mobile docked bottom sheet
+    │   ├── VitalsMonitorModal.jsx               # Real-time ECG, SpO2 pleth, Capnography waveforms
     │   └── exam/
-    │       ├── BriefingModal.jsx            # Stage 1: Candidate pre-briefing modal
-    │       ├── StationPanels.jsx            # Stage 2: Neutral exam-mode station inspection panels
-    │       ├── ExitQuestionsModal.jsx       # Stage 3: SBAR escalation & ABG interpretation exit questions
-    │       └── PerformanceReport.jsx        # Stage 4: 4-domain diagnostic report, decision tree & raw JSON tab
+    │       ├── BriefingModal.jsx                # Stage 1: Candidate pre-briefing screen & StudyAI shell
+    │       ├── StationPanels.jsx                # Stage 2: Neutral exam-mode station inspection panels
+    │       ├── WristbandArtifactInspector.jsx   # Interactive 3D patient ID wristband & barcode scanner
+    │       ├── PatientDistressInspector3D.jsx   # Interactive 3D bedside cue inspector (diaphoresis & airway)
+    │       ├── DeteriorationVideoModal.jsx      # Live-action 1080p patient deterioration cinema modal
+    │       ├── ExitQuestionsModal.jsx           # Stage 3: SBAR, ABG & hemorrhage escalation exit questions
+    │       └── PerformanceReport.jsx            # Stage 4: 4-domain Gap Chart & chronological decision trace
     ├── lib/
     │   ├── examEngine.js                    # Deterministic physiology & vital-sign trajectory engine
     │   ├── liveVitals.js                    # Beat-to-beat physiological jitter driver

@@ -2515,19 +2515,17 @@ function PatientAndWristband({
       }
     }
 
-    // Track left index finger pulse-oximeter clamshell clip (+13.8mm dorsal skin radius at 1.18x) & chest V-collar ECG lead port
+    // Track left index finger pulse-oximeter clamshell clip & chest V-collar ECG lead port
     if (spo2FingerClipRef.current?.parent && B.CC_Base_L_Index2 && B.CC_Base_L_Index3) {
       B.CC_Base_L_Index2.updateWorldMatrix(true, false);
       B.CC_Base_L_Index3.updateWorldMatrix(true, false);
       B.CC_Base_L_Index2.getWorldPosition(_knuckleWorld);
       B.CC_Base_L_Index3.getWorldPosition(_fingerTipWorld);
-      // +Z_local points proximally up the dorsal index finger (away from mattress pad!) so boot & cable stay cleanly above the hand
       _bZ.subVectors(_knuckleWorld, _fingerTipWorld).normalize();
       _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
       _bX.crossVectors(_bY, _bZ).normalize();
       _bY.crossVectors(_bZ, _bX).normalize();
-      // Lift +13.5mm along dorsal finger normal so upper white clamshell + red optical window + cyan boot sit clearly atop the finger!
-      _headPos.lerpVectors(_knuckleWorld, _fingerTipWorld, 0.88).addScaledVector(_bY, 0.0135);
+      _headPos.lerpVectors(_knuckleWorld, _fingerTipWorld, 0.55).addScaledVector(_bY, 0.006);
       spo2FingerClipRef.current.parent.worldToLocal(spo2FingerClipRef.current.position.copy(_headPos));
       _basisMat.makeBasis(_bX, _bY, _bZ);
       _worldQuat.setFromRotationMatrix(_basisMat);
@@ -2676,29 +2674,29 @@ function PatientAndWristband({
 
       {/* Clamshell Fingertip SpO2 Pulse-Oximeter Sensor Clip on Left Index Finger + Chest Collar ECG Lead Anchor */}
       <group ref={spo2FingerClipRef} position={[0.34, 1.17, 0.06]}>
-        {monitorConnected && (
-          <>
-            {/* Upper medical grey/white clamshell housing (clears 13.8mm finger radius) */}
-            <RoundedBox args={[0.030, 0.013, 0.038]} radius={0.005} position={[0, 0.011, 0]}>
-              <meshStandardMaterial color="#f1f5f9" roughness={0.34} />
-            </RoundedBox>
-            {/* Lower soft charcoal silicone pad */}
-            <RoundedBox args={[0.029, 0.011, 0.036]} radius={0.004} position={[0, -0.009, 0]}>
-              <meshStandardMaterial color="#334155" roughness={0.55} />
-            </RoundedBox>
-            {/* Red optical pulse-oximeter emitter glow window */}
-            <mesh position={[0, 0.018, -0.004]}>
-              <boxGeometry args={[0.010, 0.0025, 0.008]} />
-              <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={1.8} toneMapped={false} />
-            </mesh>
-            {/* Cyan molded cable strain-relief boot */}
-            <mesh position={[0, 0.009, 0.023]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.0044, 0.0052, 0.012, 12]} />
-              <meshStandardMaterial color="#38bdf8" roughness={0.36} />
-            </mesh>
-          </>
-        )}
-        {portRefs?.patientSpo2 && <object3D ref={portRefs.patientSpo2} position={[0, 0.009, 0.029]} />}
+        <group visible={Boolean(monitorConnected)}>
+          {/* Upper medical white clamshell housing (standard boxGeometry avoids small-radius ExtrudeGeometry degeneracy!) */}
+          <mesh position={[0, 0.008, 0]}>
+            <boxGeometry args={[0.026, 0.012, 0.034]} />
+            <meshStandardMaterial color="#f8fafc" roughness={0.32} />
+          </mesh>
+          {/* Lower charcoal silicone finger pad */}
+          <mesh position={[0, -0.004, 0]}>
+            <boxGeometry args={[0.025, 0.009, 0.032]} />
+            <meshStandardMaterial color="#334155" roughness={0.55} />
+          </mesh>
+          {/* Red optical pulse-oximeter emitter glow window */}
+          <mesh position={[0, 0.0145, -0.003]}>
+            <boxGeometry args={[0.011, 0.0025, 0.009]} />
+            <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={1.8} toneMapped={false} />
+          </mesh>
+          {/* Cyan molded cable strain-relief boot */}
+          <mesh position={[0, 0.007, 0.020]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[0.0045, 0.0055, 0.012, 12]} />
+            <meshStandardMaterial color="#38bdf8" roughness={0.34} />
+          </mesh>
+        </group>
+        {portRefs?.patientSpo2 && <object3D ref={portRefs.patientSpo2} position={[0, 0.007, 0.025]} />}
       </group>
 
       <group ref={ecgCollarAnchorRef} position={[0.05, 1.30, -0.68]}>
@@ -3285,9 +3283,9 @@ function WallOxygenPanel3D({
         <mesh
           position={[
             0,
-            o2Device === 'non_rebreather'
+            String(o2Device || '').toLowerCase().includes('rebreather')
               ? 0.095
-              : o2Device === 'simple_mask'
+              : String(o2Device || '').toLowerCase().includes('simple')
                 ? 0.058
                 : o2Device
                   ? 0.022
