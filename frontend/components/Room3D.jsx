@@ -1451,6 +1451,137 @@ function InteractiveBedSideRail({ side, isUp, geometry, baseMaterial, frozen, on
   );
 }
 
+const PILLOW_GLB_URL = '/models/pillow.glb?v=cradle_v1';
+
+/**
+ * Builds a static, lightweight (~6.8k tri) 3D quilted hospital bed pad with realistic
+ * weight-bearing depressions + baked vertex-color contact AO underneath the patient's
+ * pelvis/sacrum, splayed thighs, calves, and heels (zero runtime CPU/GPU deformation cost).
+ */
+function createDepressedBedPadGeometry() {
+  const geo = new THREE.BoxGeometry(0.92, 0.054, 1.38, 36, 2, 48);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i); // local Z in [-0.69, +0.69]; world Z = z + 0.38 -> [-0.31, +1.07]
+    const wz = z + 0.38;
+
+    const edgeX = Math.max(0, (Math.abs(x) - 0.39) / 0.07);
+    const edgeZ = Math.max(0, (Math.abs(z) - 0.61) / 0.08);
+    const edgeRoll = Math.min(1, Math.hypot(edgeX, edgeZ));
+
+    let sink = 0;
+    let bolster = 0;
+    if (y > -0.01) {
+      const topWeight = THREE.MathUtils.clamp((y + 0.01) / 0.036, 0, 1);
+
+      // 1. Pelvic / sacral weight sinkage (world Z ~ -0.22..+0.14, X ~ -0.22..+0.22)
+      const px = x / 0.22;
+      const pz = (wz + 0.04) / 0.20;
+      const pelvisSink = 0.035 * Math.exp(-(px * px + pz * pz) * 1.3);
+
+      // 2. Dual splayed leg/calf troughs (Left X: +0.10 -> +0.20, Right X: -0.10 -> -0.19 across wz = 0.02..0.90)
+      let legSink = 0;
+      if (wz > -0.04 && wz < 0.96) {
+        const tLeg = THREE.MathUtils.clamp((wz - 0.02) / 0.86, 0, 1);
+        const lxCenter = 0.10 + 0.105 * tLeg;
+        const rxCenter = -(0.10 + 0.095 * tLeg);
+        const kneeRelief = 1.0 - 0.26 * Math.exp(-(((wz - 0.39) / 0.13) ** 2));
+        const dL = (x - lxCenter) / 0.095;
+        const dR = (x - rxCenter) / 0.095;
+        const endFade =
+          THREE.MathUtils.smoothstep(wz, -0.04, 0.08) *
+          (1 - THREE.MathUtils.smoothstep(wz, 0.84, 0.96));
+        legSink =
+          0.025 *
+          kneeRelief *
+          endFade *
+          (Math.exp(-dL * dL * 1.5) + Math.exp(-dR * dR * 1.5));
+      }
+
+      // 3. Localized heel cups (Left heel ~ (+0.205, +0.88), Right heel ~ (-0.195, +0.87))
+      const hlX = (x - 0.205) / 0.068;
+      const hlZ = (wz - 0.88) / 0.075;
+      const hrX = (x + 0.195) / 0.068;
+      const hrZ = (wz - 0.87) / 0.075;
+      const heelSink =
+        0.032 *
+        (Math.exp(-(hlX * hlX + hlZ * hlZ) * 1.6) +
+          Math.exp(-(hrX * hrX + hrZ * hrZ) * 1.6));
+
+      sink = Math.max(pelvisSink, legSink, heelSink) * (1 - edgeRoll * 0.85);
+
+      const flank =
+        Math.exp(-(((Math.abs(x) - 0.32) / 0.065) ** 2)) *
+        THREE.MathUtils.smoothstep(wz, -0.10, 0.15) *
+        (1 - THREE.MathUtils.smoothstep(wz, 0.80, 0.98));
+      const midRidge =
+        Math.exp(-((x / 0.06) ** 2)) *
+        THREE.MathUtils.smoothstep(wz, 0.28, 0.52) *
+        (1 - THREE.MathUtils.smoothstep(wz, 0.82, 0.98));
+      bolster = 0.0065 * Math.max(flank, midRidge * 0.8) * (1 - edgeRoll);
+
+      y = y - topWeight * sink + topWeight * bolster - edgeRoll * 0.015 * topWeight;
+    }
+
+    pos.setXYZ(i, x, y, z);
+
+    // Subtle warm-taupe contact ambient occlusion inside weight depressions
+    const ao = THREE.MathUtils.clamp(sink / 0.034, 0, 1);
+    const r = 1.0 - ao * 0.21 - edgeRoll * 0.04;
+    const g = 1.0 - ao * 0.22 - edgeRoll * 0.04;
+    const b = 1.0 - ao * 0.20 - edgeRoll * 0.03;
+    colors[i * 3 + 0] = r;
+    colors[i * 3 + 1] = g;
+    colors[i * 3 + 2] = b;
+  }
+
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Contoured upper-torso backrest sheet with subtle scapular/shoulder sinkage + contact AO.
+ */
+function createContouredBackrestGeometry() {
+  const geo = new THREE.BoxGeometry(0.84, 0.068, 0.92, 24, 2, 28);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    let y = pos.getY(i);
+    const z = pos.getZ(i);
+    const edge = Math.min(
+      1,
+      Math.hypot(
+        Math.max(0, (Math.abs(x) - 0.35) / 0.07),
+        Math.max(0, (Math.abs(z) - 0.39) / 0.07)
+      )
+    );
+    let sink = 0;
+    if (y > 0) {
+      const sx = x / 0.24;
+      const sz = (z + 0.04) / 0.32;
+      sink = 0.024 * Math.exp(-(sx * sx + sz * sz) * 1.4) * (1 - edge);
+      y = y - sink - edge * 0.015;
+    }
+    pos.setXYZ(i, x, y, z);
+    const ao = THREE.MathUtils.clamp(sink / 0.024, 0, 1);
+    colors[i * 3 + 0] = 0.98 - ao * 0.16;
+    colors[i * 3 + 1] = 0.97 - ao * 0.16;
+    colors[i * 3 + 2] = 0.95 - ao * 0.13;
+  }
+
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function HospitalBedGLB({
   bedAngle,
   leftRailUp = false,
@@ -1463,9 +1594,11 @@ function HospitalBedGLB({
   onSelectObject,
 }) {
   const { scene: bedScene } = useGLTF('/models/hospital_bed_carlos.glb');
-  const { scene: pillowScene } = useGLTF('/models/pillow.glb');
+  const { scene: pillowScene } = useGLTF(PILLOW_GLB_URL);
   const backrestRef = useRef();
   const quiltTex = useMemo(() => makeQuiltedBlanketTexture(), []);
+  const depressedPadGeo = useMemo(() => createDepressedBedPadGeometry(), []);
+  const backrestGeo = useMemo(() => createContouredBackrestGeometry(), []);
 
   const { fittedBed, leftRailGeo, rightRailGeo, railBaseMat } = useMemo(() => {
     const fitted = fitModel(bedScene, {
@@ -1524,13 +1657,14 @@ function HospitalBedGLB({
     () =>
       fitModel(pillowScene, {
         axis: 'width',
-        target: 0.72,
+        target: 0.74,
         floor: false,
         onMesh: (m) => {
           m.castShadow = false;
+          m.receiveShadow = true;
           m.raycast = () => {};
           if (m.material) {
-            m.material.roughness = 0.88;
+            m.material.roughness = 0.9;
             m.material.metalness = 0;
           }
         },
@@ -1540,7 +1674,8 @@ function HospitalBedGLB({
 
   useFrame((_, delta) => {
     if (backrestRef.current) {
-      const targetRad = THREE.MathUtils.degToRad(bedAngle * 0.72);
+      // Synchronized 0.76x slope with patient spine so head & upper back stay nestled in the pillow cradle across 0-60 deg
+      const targetRad = THREE.MathUtils.degToRad(bedAngle * 0.76);
       backrestRef.current.rotation.x = THREE.MathUtils.lerp(
         backrestRef.current.rotation.x,
         targetRad,
@@ -1574,33 +1709,17 @@ function HospitalBedGLB({
       </mesh>
       <primitive object={fittedBed} />
 
-      {/* Quilted warm-beige hospital coverlet + crisp white turned-down top sheet (matches reference photo) */}
-      <group position={[0, 1.115, 0.56]}>
-        <RoundedBox
-          args={[0.92, 0.055, 1.04]}
-          radius={0.024}
-          receiveShadow
-        >
+      {/* Weight-depressed quilted hospital bed pad + contact AO troughs under pelvis, calves, and heels */}
+      <group position={[0, 1.111, 0.38]}>
+        <mesh geometry={depressedPadGeo} receiveShadow>
           <meshStandardMaterial
             map={quiltTex}
+            vertexColors
             color="#ffffff"
-            roughness={0.86}
+            roughness={0.88}
             metalness={0}
           />
-        </RoundedBox>
-        {/* Crisp white folded top-sheet cuff at the top edge of the quilted blanket */}
-        <RoundedBox
-          args={[0.93, 0.058, 0.14]}
-          position={[0, 0.004, -0.49]}
-          radius={0.018}
-          receiveShadow
-        >
-          <meshStandardMaterial
-            color="#f8f7f4"
-            roughness={0.84}
-            metalness={0}
-          />
-        </RoundedBox>
+        </mesh>
       </group>
 
       {/* Footboard warm woodgrain inset panel & slate-blue bumper trim (from reference photo) */}
@@ -1613,23 +1732,17 @@ function HospitalBedGLB({
         </RoundedBox>
       </group>
 
-      {/* Articulating backrest wedge + pillow under the patient's upper torso */}
-      <group ref={backrestRef} position={[0, 1.06, -0.32]}>
-        {bedAngle > 0 && (
-          <RoundedBox
-            args={[0.8, 0.08, 0.92]}
-            position={[0, 0.02, -0.45]}
-            radius={0.03}
-            receiveShadow
-          >
-            <meshStandardMaterial
-              color="#f8f6f0"
-              roughness={0.9}
-              metalness={0}
-            />
-          </RoundedBox>
-        )}
-        <group position={[0, 0.07, -0.76]}>
+      {/* Articulating contoured backrest sheet + sculpted head-depression pillow */}
+      <group ref={backrestRef} position={[0, 1.072, -0.31]}>
+        <mesh geometry={backrestGeo} position={[0, 0.012, -0.44]} receiveShadow>
+          <meshStandardMaterial
+            vertexColors
+            color="#f8f6f0"
+            roughness={0.9}
+            metalness={0}
+          />
+        </mesh>
+        <group position={[0, 0.056, -0.67]}>
           <primitive object={fittedPillow} />
         </group>
       </group>
@@ -1676,7 +1789,7 @@ const _headUp = new THREE.Vector3();
 const _headFront = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 
-const PATIENT_GLB_URL = '/models/patient.glb?v=clo_gown_v3';
+const PATIENT_GLB_URL = '/models/patient.glb?v=draped_blink_v2';
 const PATIENT_SCALE = 1.18;
 
 function PatientAndWristband({
@@ -1701,6 +1814,11 @@ function PatientAndWristband({
   const leftWristRef = useRef();
   const rightHandIvRef = useRef();
   const maskRef = useRef();
+  const blinkStateRef = useRef({
+    nextBlinkAt: 1.4,
+    blinkStart: -10,
+    doubleQueued: false,
+  });
 
   // Derive active patient verbal assessment cue from scenario_hypoxia.json
   const verbalState = useMemo(() => {
@@ -1843,7 +1961,7 @@ function PatientAndWristband({
       }
     }
 
-    // 2. Sub-100ms Fowler's / High Fowler's spine articulation + clinical state animations (Character Space)
+    // 2. Synchronized Fowler's spine articulation (0.76x matching backrestRef) + relaxed pillow rest
     currAngleRef.current = THREE.MathUtils.lerp(
       currAngleRef.current,
       bedAngle,
@@ -1853,62 +1971,121 @@ function PatientAndWristband({
     const breath = (Math.sin(live.respPhase - Math.PI / 2) + 1) / 2;
     const isBradypneic = live.rr <= 10;
     const isDistressed = live.spo2 < 92 && !isBradypneic;
-    const breathAmp = isBradypneic ? 0.014 : isDistressed ? 0.052 : 0.032;
+    const breathAmp = isBradypneic ? 0.014 : isDistressed ? 0.045 : 0.028;
 
     const headRestlessYaw = isBradypneic
-      ? -0.28
+      ? -0.22
       : isDistressed
-        ? Math.sin(elapsed * 1.9) * 0.2
-        : Math.sin(elapsed * 0.6) * 0.05;
-    const spasm = isDistressed ? (Math.sin(elapsed * 3.4) + 1) * 0.5 : 0;
+        ? -0.06 + Math.sin(elapsed * 1.45) * 0.14
+        : -0.05 + Math.sin(elapsed * 0.45) * 0.04;
+    const spasm = isDistressed ? (Math.sin(elapsed * 2.9) + 1) * 0.5 : 0;
 
-    // Positive rx in Character Space pitches Waist/Spine01/Spine02 forward (lifting chest up into Fowler's!)
-    setNurseCharRotation(B.CC_Base_Waist, elevRad * 0.42, 0, 0);
+    setNurseCharRotation(B.CC_Base_Waist, elevRad * 0.34, 0, 0);
     setNurseCharRotation(
       B.CC_Base_Spine01,
-      elevRad * 0.35 + breath * breathAmp + spasm * 0.03,
-      isDistressed ? Math.sin(elapsed * 1.4) * 0.025 : 0,
-      0
+      elevRad * 0.25 + breath * breathAmp + spasm * 0.022,
+      isDistressed ? Math.sin(elapsed * 1.2) * 0.02 : 0,
+      0.015
     );
-    setNurseCharRotation(B.CC_Base_Spine02, elevRad * 0.25 + breath * breathAmp, 0, 0);
-    setNurseCharRotation(B.CC_Base_L_Clavicle, breath * breathAmp * 0.4, 0, 0);
-    setNurseCharRotation(B.CC_Base_R_Clavicle, breath * breathAmp * 0.4, 0, 0);
+    setNurseCharRotation(B.CC_Base_Spine02, elevRad * 0.17 + breath * breathAmp * 0.9, 0, -0.01);
+
+    // Relaxed dropped shoulders resting back against the pillow/mattress
+    setNurseCharRotation(B.CC_Base_L_Clavicle, -0.04 + breath * breathAmp * 0.35, 0.05, -0.06);
+    setNurseCharRotation(B.CC_Base_R_Clavicle, -0.04 + breath * breathAmp * 0.35, -0.05, 0.06);
+
+    // Neck & head sink gently BACKWARD into the sculpted pillow cradle (no stiff forward crunch!)
     setNurseCharRotation(
       B.CC_Base_NeckTwist01,
-      0.12 - elevRad * 0.06 - (isBradypneic ? 0.1 : 0),
-      headRestlessYaw * 0.6,
-      isBradypneic ? -0.15 : 0
+      -0.06 + elevRad * 0.04 - (isBradypneic ? 0.06 : 0),
+      headRestlessYaw * 0.55,
+      isBradypneic ? -0.11 : 0.04
     );
-    setNurseCharRotation(B.CC_Base_Head, -breath * 0.025, headRestlessYaw * 0.4, 0);
+    setNurseCharRotation(
+      B.CC_Base_Head,
+      -0.04 + elevRad * 0.05 - breath * 0.02,
+      headRestlessYaw * 0.45,
+      0.035
+    );
 
-    // Subtle open-mouth gasping during bradypnea/hypoxia vs relaxed closed jaw when stabilized
+    // 3. Softened brow, heavy post-op resting eyelids, natural human blinks & calm eye micro-gaze
+    if (B.CC_Base_BrowRelax) {
+      setNurseCharRotation(B.CC_Base_BrowRelax, isBradypneic ? 0.11 : 0.085, 0, 0);
+    }
+
+    const bs = blinkStateRef.current;
+    if (elapsed >= bs.nextBlinkAt) {
+      bs.blinkStart = elapsed;
+      if (!bs.doubleQueued && ((Math.sin(elapsed * 12.9898) * 43758.5453) % 1 + 1) % 1 < 0.2) {
+        bs.doubleQueued = true;
+        bs.nextBlinkAt = elapsed + 0.32;
+      } else {
+        bs.doubleQueued = false;
+        const jitter = ((Math.sin(elapsed * 78.233) * 19341.7) % 1 + 1) % 1;
+        bs.nextBlinkAt = elapsed + (isBradypneic ? 4.4 : 2.6) + jitter * 2.8;
+      }
+    }
+    const dtBlink = elapsed - bs.blinkStart;
+    let blinkWave = 0;
+    if (dtBlink >= 0 && dtBlink < 0.095) {
+      blinkWave = Math.sin((dtBlink / 0.095) * (Math.PI * 0.5));
+    } else if (dtBlink >= 0.095 && dtBlink < 0.29) {
+      const u = (dtBlink - 0.095) / 0.195;
+      blinkWave = Math.cos(u * (Math.PI * 0.5));
+    }
+
+    // Never stare wide-eyed: heavy sedated lids when bradypneic, drowsy post-op lids at arrival/hypoxia, soft calm lids when stable
+    const baseDroop = isBradypneic ? 0.78 : isDistressed || !monitorConnected ? 0.42 : 0.26;
+    const lidClose = Math.max(baseDroop, blinkWave);
+    const upperLidRx = lidClose * 0.62;
+    const lowerLidRx = -lidClose * 0.14;
+    setNurseCharRotation(B.CC_Base_L_UpperLid, upperLidRx, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_UpperLid, upperLidRx * 0.98, 0, 0);
+    setNurseCharRotation(B.CC_Base_L_LowerLid, lowerLidRx, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_LowerLid, lowerLidRx, 0, 0);
+
+    // Soft downward/natural eye gaze drift instead of staring straight at the ceiling
+    const gazeDown = isBradypneic ? 0.18 : 0.11 + Math.sin(elapsed * 0.37) * 0.035;
+    const gazeYaw = Math.sin(elapsed * 0.53) * 0.055 + Math.sin(elapsed * 1.17) * 0.02;
+    setNurseCharRotation(B.CC_Base_L_Eye, gazeDown, gazeYaw, 0);
+    setNurseCharRotation(B.CC_Base_R_Eye, gazeDown, gazeYaw, 0);
+
+    // Subtle open-mouth breathing during bradypnea/hypoxia vs relaxed jaw when stabilized
     if (B.CC_Base_JawRoot) {
-      const jawOpen = isBradypneic ? 0.14 + breath * 0.06 : isDistressed ? 0.08 + breath * 0.08 : 0.02;
+      const jawOpen = isBradypneic ? 0.13 + breath * 0.05 : isDistressed ? 0.07 + breath * 0.07 : 0.025;
       setNurseCharRotation(B.CC_Base_JawRoot, jawOpen, 0, 0);
     }
 
-    // Left & Right AccuRIG arms rest symmetrically along the mattress beside the hips across 0-60 deg Fowler's
+    // 4. Natural, slightly asymmetric relaxed bedside arms & hands (zero robotic symmetry, zero bed clipping)
     setNurseCharRotation(
       B.CC_Base_L_Upperarm,
-      0.06 - elevRad * 0.44,
-      0,
-      -0.44
+      0.04 - elevRad * 0.34,
+      -0.08,
+      -0.46
     );
-    setNurseCharRotation(B.CC_Base_L_Forearm, 0.52 - elevRad * 0.08 - breath * 0.02, 0, -0.06);
-    setNurseCharRotation(B.CC_Base_L_Hand, 0.06, 0, 0);
+    setNurseCharRotation(B.CC_Base_L_Forearm, 0.50 - elevRad * 0.06 - breath * 0.018, 0.16, -0.08);
+    setNurseCharRotation(B.CC_Base_L_Hand, 0.08, 0.06, -0.05);
 
     setNurseCharRotation(
       B.CC_Base_R_Upperarm,
-      0.06 - elevRad * 0.44,
-      0,
-      0.44
+      0.06 - elevRad * 0.34,
+      0.05,
+      0.43
     );
-    setNurseCharRotation(B.CC_Base_R_Forearm, 0.52 - elevRad * 0.08 - breath * 0.02, 0, 0.06);
-    setNurseCharRotation(B.CC_Base_R_Hand, 0.06, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_Forearm, 0.46 - elevRad * 0.06 - breath * 0.018, -0.10, 0.06);
+    setNurseCharRotation(B.CC_Base_R_Hand, 0.08, -0.05, 0.04);
 
-    const legShift = isDistressed ? Math.sin(elapsed * 1.3) * 0.045 : 0;
-    setNurseCharRotation(B.CC_Base_L_Thigh, legShift, 0, 0);
-    setNurseCharRotation(B.CC_Base_R_Thigh, -legShift, 0, 0);
+    // 5. Relaxed knees, natural external hip turnout, plantarflexed ankles & toes nestled in bed depressions
+    const legShift = isDistressed ? Math.sin(elapsed * 1.15) * 0.032 : Math.sin(elapsed * 0.32) * 0.008;
+    const gatch = elevRad * 0.06;
+    setNurseCharRotation(B.CC_Base_L_Thigh, -0.17 - gatch + legShift, -0.13, 0.03);
+    setNurseCharRotation(B.CC_Base_L_Calf, 0.28 + gatch * 1.25, 0, 0);
+    setNurseCharRotation(B.CC_Base_L_Foot, 0.28, -0.05, 0);
+    setNurseCharRotation(B.CC_Base_L_ToeBase, 0.12, 0, 0);
+
+    setNurseCharRotation(B.CC_Base_R_Thigh, -0.19 - gatch - legShift, 0.11, -0.025);
+    setNurseCharRotation(B.CC_Base_R_Calf, 0.31 + gatch * 1.25, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_Foot, 0.30, 0.04, 0);
+    setNurseCharRotation(B.CC_Base_R_ToeBase, 0.12, 0, 0);
 
     if (headOverlayRef.current && B.CC_Base_Head && headOverlayRef.current.parent) {
       const headBone = B.CC_Base_Head;
@@ -1951,7 +2128,7 @@ function PatientAndWristband({
     <group>
       {/* Rigged AccuRIG 3D Patient Model + 12-triangle instant click hitbox */}
       <group
-        position={[0, 1.16, -0.04]}
+        position={[0, 1.178, -0.05]}
         onClick={stop(() => {
           onSelectObject('wristband');
           speakPatientCue(verbalState.text, false);
@@ -3203,7 +3380,7 @@ const Room3D = React.memo(function Room3D({
 export default Room3D;
 
 useGLTF.preload('/models/hospital_bed_carlos.glb');
-useGLTF.preload('/models/pillow.glb');
+useGLTF.preload(PILLOW_GLB_URL);
 useGLTF.preload(PATIENT_GLB_URL);
 useGLTF.preload(NURSE_GLB_URL);
 useGLTF.preload('/models/heart_monitor.glb');
