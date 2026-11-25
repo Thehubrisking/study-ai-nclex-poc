@@ -58,9 +58,9 @@ function enhanceInspectorSkinMaterial(srcMat, uniforms) {
         float swX = 1.0 - smoothstep(0.056, 0.094, abs(position.x));
         vSweatZone = clamp(swY * swZ * swX, 0.0, 1.0);
 
-        float lpY = smoothstep(1.615, 1.623, position.y) * (1.0 - smoothstep(1.644, 1.655, position.y));
-        float lpZ = smoothstep(0.096, 0.112, position.z);
-        float lpX = 1.0 - smoothstep(0.021, 0.035, abs(position.x));
+        float lpY = smoothstep(1.621, 1.626, position.y) * (1.0 - smoothstep(1.634, 1.639, position.y));
+        float lpZ = smoothstep(0.111, 0.118, position.z);
+        float lpX = 1.0 - smoothstep(0.016, 0.026, abs(position.x));
         vLipZone = clamp(lpY * lpZ * lpX, 0.0, 1.0);`
       );
 
@@ -84,8 +84,8 @@ function enhanceInspectorSkinMaterial(srcMat, uniforms) {
         `#include <map_fragment>
         if (uDistress > 0.01 && vLipZone > 0.01) {
           float lipLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-          vec3 ashenMucosa = vec3(lipLum * 1.16, lipLum * 1.17, lipLum * 1.21);
-          diffuseColor.rgb = mix(diffuseColor.rgb, ashenMucosa, vLipZone * uDistress * 0.74);
+          vec3 ashenMucosa = vec3(lipLum * 1.03, lipLum * 1.03, lipLum * 1.06);
+          diffuseColor.rgb = mix(diffuseColor.rgb, ashenMucosa, vLipZone * uDistress * 0.34);
         }`
       )
       .replace(
