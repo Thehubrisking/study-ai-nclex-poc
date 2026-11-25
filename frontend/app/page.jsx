@@ -1531,6 +1531,7 @@ export default function StudyAiExamPage() {
           {distressInspectorOpen && activeDrawerId !== 'wristband' && !distressVideoOpen && (
             <PatientDistressInspector3D
               vitals={vitals}
+              o2Device={clin.o2Device}
               onWatchVideo={handleWatchDistressFilm}
               onClose={() => setDistressInspectorOpen(false)}
               hasSideDrawer={Boolean(activeDrawerId)}

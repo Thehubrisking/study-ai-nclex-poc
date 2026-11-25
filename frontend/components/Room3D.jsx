@@ -27,6 +27,7 @@ import {
   createAllergyClaspTexture,
   buildWristbandArtifactGroup,
 } from './exam/WristbandArtifactInspector';
+import { buildOxygenApparatusGroup } from '../lib/oxygenMask3D';
 import {
   NAV,
   registerObstacle,
@@ -82,9 +83,9 @@ const STATION_WAYPOINTS = {
     otsCam: [-0.92, 2.02, 1.05],
   },
   wall_oxygen: {
-    nursePos: [-0.94, 0, -1.25],
-    lookAt: [-0.88, 1.38, -1.84],
-    otsCam: [-0.22, 1.76, 1.15],
+    nursePos: [-1.18, 0, -1.18],
+    lookAt: [-0.98, 1.38, -1.84],
+    otsCam: [0.55, 1.86, 0.55],
   },
   iv_pump: {
     nursePos: [-1.2, 0, 0.5],
@@ -132,8 +133,8 @@ const CAMERA_PRESETS = {
     target: [-0.04, 1.36, -0.16],
   },
   wall_oxygen: {
-    pos: [-0.1, 1.9, 0.1],
-    target: [-0.88, 1.38, -1.84],
+    pos: [0.55, 1.86, 0.55],
+    target: [-0.28, 1.34, -1.15],
   },
   iv_pump: {
     pos: [-0.3, 1.9, 1.45],
@@ -1963,6 +1964,25 @@ function PatientAndWristband({
     return { group, labelTex, allergyTex };
   }, [patient]);
 
+  const oxygenApparatus = useMemo(
+    () => (o2Device ? buildOxygenApparatusGroup(o2Device) : null),
+    [o2Device]
+  );
+
+  useEffect(
+    () => () => {
+      if (!oxygenApparatus) return;
+      oxygenApparatus.group.traverse((o) => {
+        if (o.isMesh) {
+          o.geometry?.dispose();
+          if (Array.isArray(o.material)) o.material.forEach((m) => m?.dispose());
+          else o.material?.dispose();
+        }
+      });
+    },
+    [oxygenApparatus]
+  );
+
   useEffect(
     () => () => {
       if (!bedsideWristband) return;
@@ -2383,22 +2403,27 @@ function PatientAndWristband({
     setNurseCharRotation(B.CC_Base_R_Foot, 0.30, 0.04, 0);
     setNurseCharRotation(B.CC_Base_R_ToeBase, 0.12, 0, 0);
 
-    if (headOverlayRef.current && B.CC_Base_Head && headOverlayRef.current.parent) {
+    if (B.CC_Base_Head) {
       const headBone = B.CC_Base_Head;
       headBone.updateWorldMatrix(true, false);
       headBone.getWorldPosition(_headPos);
       headBone.getWorldQuaternion(_headQuat);
-      // Convert bone world quaternion to Character-Space world orientation (+Y = crown, +Z = nose forward)
+      // Convert bone world quaternion to Character-Space world orientation (+X = left cheek, +Y = crown, +Z = nose forward)
       _headQuat.multiply(headBone.userData.charQuatInv);
-      _headUp.set(0, 1, 0).applyQuaternion(_headQuat);
-      _headFront.set(0, 0, 1).applyQuaternion(_headQuat);
-      // Seat mask snugly against bridge of nose & chin (zero air gap in front of face)
-      _headPos.addScaledVector(_headUp, 0.052).addScaledVector(_headFront, 0.142);
-      headOverlayRef.current.parent.worldToLocal(headOverlayRef.current.position.copy(_headPos));
-      if (maskRef.current) {
-        headOverlayRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
-        _worldQuat.setFromUnitVectors(_yAxis, _headFront);
-        maskRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
+
+      // Anchor 3D Oxygen Mask / Nasal Cannula directly in Character-Head Space (1.18x measured saddle fit!)
+      if (maskRef.current && maskRef.current.parent) {
+        maskRef.current.parent.worldToLocal(maskRef.current.position.copy(_headPos));
+        maskRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
+        maskRef.current.quaternion.copy(_parentQuatInv).multiply(_headQuat);
+      }
+
+      // Keep unrotated floating speech-bubble overlay centered above face
+      if (headOverlayRef.current && headOverlayRef.current.parent) {
+        _headUp.set(0, 1, 0).applyQuaternion(_headQuat);
+        _headFront.set(0, 0, 1).applyQuaternion(_headQuat);
+        _headPos.addScaledVector(_headUp, 0.055).addScaledVector(_headFront, 0.165);
+        headOverlayRef.current.parent.worldToLocal(headOverlayRef.current.position.copy(_headPos));
       }
     }
 
@@ -2536,96 +2561,27 @@ function PatientAndWristband({
         </group>
       </group>
 
-      {/* Supplemental Oxygen Mask / Nasal Cannula + Floating Patient Speech Bubble */}
-      <group ref={headOverlayRef} position={[0, 1.34, -0.92]}>
-        {o2Device && (
-          <group ref={maskRef}>
-            {o2Device === 'nasal_cannula' ? (
-              /* Clear Medical PVC Nasal Cannula Loops & Prongs (zero cartoon cone!) */
-              <group rotation={[-Math.PI / 2, 0, 0]}>
-                <mesh position={[0, 0.012, 0.018]}>
-                  <torusGeometry args={[0.048, 0.0032, 10, 28, Math.PI * 1.15]} />
-                  <meshPhysicalMaterial
-                    color="#d1fae5"
-                    transparent
-                    opacity={0.62}
-                    roughness={0.18}
-                  />
-                </mesh>
-                {[-0.006, 0.006].map((px) => (
-                  <mesh key={px} position={[px, 0.022, -0.012]} rotation={[0.35, 0, 0]}>
-                    <cylinderGeometry args={[0.0022, 0.0026, 0.014, 10]} />
-                    <meshPhysicalMaterial color="#ecfdf5" transparent opacity={0.72} roughness={0.2} />
-                  </mesh>
-                ))}
-                <mesh position={[0, -0.036, 0.028]}>
-                  <cylinderGeometry args={[0.0045, 0.0045, 0.016, 12]} />
-                  <meshStandardMaterial color="#10b981" roughness={0.35} />
-                </mesh>
-                {portRefs?.o2MaskPort && (
-                  <object3D ref={portRefs.o2MaskPort} position={[0, -0.044, 0.028]} />
-                )}
-              </group>
-            ) : (
-              /* Contoured Clear Medical-Vinyl Hudson Oxygen Mask (+ Reservoir Bag for NRB) */
-              <group>
-                {/* Clear anatomical face-cup dome */}
-                <mesh position={[0, -0.018, 0]} scale={[0.82, 1.0, 1.08]}>
-                  <cylinderGeometry args={[0.024, 0.052, 0.072, 24, 1, true]} />
-                  <meshPhysicalMaterial
-                    color="#e6fffa"
-                    transparent
-                    opacity={0.44}
-                    roughness={0.14}
-                    metalness={0.02}
-                    side={THREE.DoubleSide}
-                  />
-                </mesh>
-                {/* Soft seafoam-mint anatomical face cushion rim */}
-                <mesh position={[0, -0.052, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[0.82, 1.08, 1]}>
-                  <torusGeometry args={[0.051, 0.0055, 12, 28]} />
-                  <meshStandardMaterial color="#34d399" roughness={0.55} transparent opacity={0.82} />
-                </mesh>
-                {/* Malleable aluminum nose-bridge strip */}
-                <mesh position={[0, -0.026, -0.038]} rotation={[0.42, 0, 0]}>
-                  <torusGeometry args={[0.018, 0.0022, 8, 16, Math.PI]} />
-                  <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.22} />
-                </mesh>
-                {/* Bilateral exhalation valve discs */}
-                {[-0.032, 0.032].map((vx) => (
-                  <mesh key={vx} position={[vx, -0.022, 0.008]} rotation={[0, 0, Math.PI / 2]}>
-                    <cylinderGeometry args={[0.009, 0.009, 0.004, 14]} />
-                    <meshStandardMaterial color="#10b981" roughness={0.4} />
-                  </mesh>
-                ))}
-                {/* Front 22mm green oxygen swivel elbow & downward tubing barb */}
-                <mesh position={[0, 0.022, 0.006]}>
-                  <cylinderGeometry args={[0.011, 0.013, 0.022, 16]} />
-                  <meshStandardMaterial color="#059669" roughness={0.35} />
-                </mesh>
-                <mesh position={[0, 0.028, 0.020]} rotation={[Math.PI / 2.4, 0, 0]}>
-                  <cylinderGeometry args={[0.005, 0.006, 0.018, 12]} />
-                  <meshStandardMaterial color="#10b981" roughness={0.35} />
-                </mesh>
-                {portRefs?.o2MaskPort && (
-                  <object3D ref={portRefs.o2MaskPort} position={[0, 0.030, 0.028]} />
-                )}
-                {o2Device === 'non_rebreather' && (
-                  /* Clear inflated 1L Non-Rebreather Reservoir Bag */
-                  <mesh position={[0, 0.052, 0.048]} rotation={[0.88, 0, 0]} scale={[0.88, 1.25, 0.62]}>
-                    <sphereGeometry args={[0.042, 18, 14]} />
-                    <meshPhysicalMaterial
-                      color="#ecfdf5"
-                      transparent
-                      opacity={0.38}
-                      roughness={0.16}
-                    />
-                  </mesh>
-                )}
-              </group>
+      {/* Anatomically Contoured 3D Supplemental Oxygen Mask / Nasal Cannula (1.18x measured head-space saddle fit!) */}
+      <group ref={maskRef} position={[0, 1.29, -0.82]}>
+        {oxygenApparatus && (
+          <>
+            <primitive object={oxygenApparatus.group} />
+            {portRefs?.o2MaskPort && (
+              <object3D
+                ref={portRefs.o2MaskPort}
+                position={[
+                  oxygenApparatus.portPosition.x,
+                  oxygenApparatus.portPosition.y,
+                  oxygenApparatus.portPosition.z,
+                ]}
+              />
             )}
-          </group>
+          </>
         )}
+      </group>
+
+      {/* Floating Patient Speech Bubble */}
+      <group ref={headOverlayRef} position={[0, 1.34, -0.92]}>
 
         {/* Interactive Patient Verbal Assessment Bubble — Matches Figma 36:80 / 29:3851 */}
         {patientAssessed && verbalState.text && (

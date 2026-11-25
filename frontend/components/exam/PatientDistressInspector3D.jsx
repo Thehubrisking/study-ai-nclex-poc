@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RotateCw, ZoomIn, ZoomOut, Play, Eye, X } from 'lucide-react';
 import { fitModel } from '../../lib/fitModel';
+import { buildOxygenApparatusGroup } from '../../lib/oxygenMask3D';
 
 const PATIENT_GLB_URL = '/models/patient.glb?v=draped_blink_v2';
 const PILLOW_GLB_URL = '/models/pillow.glb';
@@ -162,12 +163,14 @@ const CAMERA_VIEWS = {
  */
 export default function PatientDistressInspector3D({
   vitals,
+  o2Device = null,
   onWatchVideo,
   onClose,
   hasSideDrawer = false,
   isMobile = false,
 }) {
   const mountRef = useRef(null);
+  const o2HolderRef = useRef(null);
   const [autoSpin, setAutoSpin] = useState(false);
   const [activePreset, setActivePreset] = useState('face');
   const [loaded, setLoaded] = useState(false);
@@ -246,6 +249,11 @@ export default function PatientDistressInspector3D({
 
     const stageGroup = new THREE.Group();
     scene.add(stageGroup);
+
+    const o2Holder = new THREE.Group();
+    stageGroup.add(o2Holder);
+    o2HolderRef.current = o2Holder;
+    const headQuatTmp = new THREE.Quaternion();
 
     // Contoured white cotton hospital backrest + lower mattress pad so the patient rests naturally in Semi-Fowler's
     const sheetMat = new THREE.MeshStandardMaterial({
@@ -541,6 +549,13 @@ export default function PatientDistressInspector3D({
         const eyePitch = THREE.MathUtils.clamp(0.22 - (st.elevation - 0.55) * 0.22, 0.06, 0.30);
         setCharRotation(bonesMap.CC_Base_L_Eye, eyePitch, eyeYaw, 0);
         setCharRotation(bonesMap.CC_Base_R_Eye, eyePitch, eyeYaw, 0);
+
+        if (bonesMap.CC_Base_Head && o2Holder.children.length > 0) {
+          bonesMap.CC_Base_Head.updateWorldMatrix(true, false);
+          bonesMap.CC_Base_Head.getWorldPosition(o2Holder.position);
+          bonesMap.CC_Base_Head.getWorldQuaternion(headQuatTmp);
+          o2Holder.quaternion.copy(headQuatTmp).multiply(bonesMap.CC_Base_Head.userData.charQuatInv);
+        }
       }
 
       // Spherical camera orbit around exact head/face anchor (keeps narrow aspect ratios framed cleanly)
@@ -583,8 +598,31 @@ export default function PatientDistressInspector3D({
         }
       });
       renderer.dispose();
+      o2HolderRef.current = null;
     };
   }, []);
+
+  // Dynamically mount/update 3D Supplemental Oxygen Mask or Nasal Cannula inside the 3D Cue Inspector when triggered!
+  useEffect(() => {
+    const holder = o2HolderRef.current;
+    if (!holder) return undefined;
+    while (holder.children.length > 0) {
+      const child = holder.children[0];
+      holder.remove(child);
+      child.traverse((o) => {
+        if (o.isMesh) {
+          o.geometry?.dispose();
+          if (Array.isArray(o.material)) o.material.forEach((m) => m?.dispose());
+          else o.material?.dispose();
+        }
+      });
+    }
+    if (o2Device) {
+      const { group } = buildOxygenApparatusGroup(o2Device);
+      holder.add(group);
+    }
+    return undefined;
+  }, [o2Device, loaded]);
 
   return (
     <div
