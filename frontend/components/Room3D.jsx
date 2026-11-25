@@ -23,6 +23,11 @@ import { speakPatientCue } from '../utils/clinicalAudio';
 import HospitalRoom, { RoomLighting, ROOM } from './HospitalRoom';
 import AdaptiveQuality, { dprForMode, isSoftwareRenderer } from './AdaptiveQuality';
 import {
+  createThermalLabelTexture,
+  createAllergyClaspTexture,
+  buildWristbandArtifactGroup,
+} from './exam/WristbandArtifactInspector';
+import {
   NAV,
   registerObstacle,
   unregisterObstacle,
@@ -1812,6 +1817,17 @@ const _headQuat = new THREE.Quaternion();
 const _headUp = new THREE.Vector3();
 const _headFront = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
+const _elbowWorld = new THREE.Vector3();
+const _wristWorld = new THREE.Vector3();
+const _knuckleWorld = new THREE.Vector3();
+const _fingerTipWorld = new THREE.Vector3();
+const _uArm = new THREE.Vector3();
+const _bX = new THREE.Vector3();
+const _bY = new THREE.Vector3();
+const _bZ = new THREE.Vector3();
+const _basisMat = new THREE.Matrix4();
+const _parentQuatInv = new THREE.Quaternion();
+const _worldQuat = new THREE.Quaternion();
 
 const PATIENT_GLB_URL = '/models/patient.glb?v=draped_blink_v2';
 const PATIENT_SCALE = 1.18;
@@ -1897,6 +1913,7 @@ function enhanceBedsidePatientSkin(mat, distressUniform) {
 }
 
 function PatientAndWristband({
+  patient,
   bedAngle,
   o2Device,
   verifiedId,
@@ -1904,6 +1921,7 @@ function PatientAndWristband({
   crystalloidBolus = false,
   distressEmoteVisible = false,
   nurseStateRef,
+  portRefs,
   vitals,
   monitorConnected = true,
   verbalCues,
@@ -1924,7 +1942,42 @@ function PatientAndWristband({
   const headOverlayRef = useRef();
   const leftWristRef = useRef();
   const rightHandIvRef = useRef();
+  const spo2FingerClipRef = useRef();
+  const ecgCollarAnchorRef = useRef();
   const maskRef = useRef();
+
+  // Build the exact same 3D vinyl snap-clasp patient wristband + printed barcode label + rear red allergy clasp
+  // used in WristbandArtifactInspector so the patient wears the real 3D artifact on his left wrist!
+  const bedsideWristband = useMemo(() => {
+    if (typeof document === 'undefined') return null;
+    const labelTex = createThermalLabelTexture(patient);
+    const allergyTex = createAllergyClaspTexture();
+    const { group } = buildWristbandArtifactGroup(labelTex, allergyTex, { includeLaser: false });
+    group.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = false;
+        o.receiveShadow = true;
+        o.raycast = () => {};
+      }
+    });
+    return { group, labelTex, allergyTex };
+  }, [patient]);
+
+  useEffect(
+    () => () => {
+      if (!bedsideWristband) return;
+      bedsideWristband.labelTex?.dispose();
+      bedsideWristband.allergyTex?.dispose();
+      bedsideWristband.group.traverse((o) => {
+        if (o.isMesh) {
+          o.geometry?.dispose();
+          if (Array.isArray(o.material)) o.material.forEach((m) => m?.dispose());
+          else o.material?.dispose();
+        }
+      });
+    },
+    [bedsideWristband]
+  );
   const blinkStateRef = useRef({
     nextBlinkAt: 1.4,
     blinkStart: -10,
@@ -2339,28 +2392,95 @@ function PatientAndWristband({
       _headQuat.multiply(headBone.userData.charQuatInv);
       _headUp.set(0, 1, 0).applyQuaternion(_headQuat);
       _headFront.set(0, 0, 1).applyQuaternion(_headQuat);
-      _headPos.addScaledVector(_headUp, 0.045).addScaledVector(_headFront, 0.185);
+      // Seat mask snugly against bridge of nose & chin (zero air gap in front of face)
+      _headPos.addScaledVector(_headUp, 0.052).addScaledVector(_headFront, 0.142);
       headOverlayRef.current.parent.worldToLocal(headOverlayRef.current.position.copy(_headPos));
       if (maskRef.current) {
-        maskRef.current.quaternion.setFromUnitVectors(_yAxis, _headFront);
+        headOverlayRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
+        _worldQuat.setFromUnitVectors(_yAxis, _headFront);
+        maskRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
       }
     }
 
-    if (B.CC_Base_L_Hand && leftWristRef.current?.parent) {
+    // Concentrically align the 3D Wristband Artifact around the patient's left distal forearm (`elbow -> wrist`)
+    // with the printed thermal barcode label facing dorsally UPWARD across all 0-60 deg bed angles!
+    if (B.CC_Base_L_Hand && B.CC_Base_L_Forearm && leftWristRef.current?.parent) {
+      B.CC_Base_L_Forearm.updateWorldMatrix(true, false);
       B.CC_Base_L_Hand.updateWorldMatrix(true, false);
-      B.CC_Base_L_Hand.getWorldPosition(_headPos);
-      _headPos.x += 0.004;
+      B.CC_Base_L_Forearm.getWorldPosition(_elbowWorld);
+      B.CC_Base_L_Hand.getWorldPosition(_wristWorld);
+
+      _headPos.lerpVectors(_wristWorld, _elbowWorld, 0.12);
       _headPos.y += 0.002;
-      _headPos.z -= 0.024;
       leftWristRef.current.parent.worldToLocal(leftWristRef.current.position.copy(_headPos));
+
+      // Orthonormal basis: +Y_band up the forearm toward elbow, +Z_band dorsal up, +X_band across wrist width
+      _bY.subVectors(_elbowWorld, _wristWorld).normalize();
+      _bZ.set(0, 1, 0).addScaledVector(_bY, -_bY.y);
+      if (_bZ.lengthSq() < 1e-5) _bZ.set(0, 0, 1);
+      else _bZ.normalize();
+      _bX.crossVectors(_bY, _bZ).normalize();
+      _bZ.crossVectors(_bX, _bY).normalize();
+      _basisMat.makeBasis(_bX, _bY, _bZ);
+      _worldQuat.setFromRotationMatrix(_basisMat);
+      leftWristRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
+      leftWristRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
     }
+
+    // Seat the Tegaderm IV Cannula & Hub flush onto the dorsal metacarpal surface of the pronated right hand
     if (B.CC_Base_R_Hand && rightHandIvRef.current?.parent) {
       B.CC_Base_R_Hand.updateWorldMatrix(true, false);
-      B.CC_Base_R_Hand.getWorldPosition(_headPos);
-      _headPos.x += 0.018;
-      _headPos.y += 0.016;
-      _headPos.z += 0.052;
-      rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_headPos));
+      B.CC_Base_R_Hand.getWorldPosition(_wristWorld);
+      if (B.CC_Base_R_Mid1 && B.CC_Base_R_Forearm) {
+        B.CC_Base_R_Mid1.updateWorldMatrix(true, false);
+        B.CC_Base_R_Forearm.updateWorldMatrix(true, false);
+        B.CC_Base_R_Mid1.getWorldPosition(_knuckleWorld);
+        B.CC_Base_R_Forearm.getWorldPosition(_elbowWorld);
+        _headPos.lerpVectors(_wristWorld, _knuckleWorld, 0.52);
+        // Outward dorsal lift along surface normal; +Z_local of IV dressing points proximally toward elbow/IV pole!
+        _bZ.subVectors(_elbowWorld, _wristWorld).normalize();
+        _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
+        _bX.crossVectors(_bY, _bZ).normalize();
+        _bY.crossVectors(_bZ, _bX).normalize();
+        _headPos.addScaledVector(_bY, 0.011);
+        rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_headPos));
+        _basisMat.makeBasis(_bX, _bY, _bZ);
+        _worldQuat.setFromRotationMatrix(_basisMat);
+        rightHandIvRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
+        rightHandIvRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
+      } else {
+        _wristWorld.x += 0.018;
+        _wristWorld.y += 0.016;
+        _wristWorld.z += 0.052;
+        rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_wristWorld));
+      }
+    }
+
+    // Track left index finger pulse-oximeter clip & chest V-collar ECG lead port for Bedside Monitor cables
+    if (spo2FingerClipRef.current?.parent && B.CC_Base_L_Index2 && B.CC_Base_L_Index3) {
+      B.CC_Base_L_Index2.updateWorldMatrix(true, false);
+      B.CC_Base_L_Index3.updateWorldMatrix(true, false);
+      B.CC_Base_L_Index2.getWorldPosition(_knuckleWorld);
+      B.CC_Base_L_Index3.getWorldPosition(_fingerTipWorld);
+      _headPos.lerpVectors(_knuckleWorld, _fingerTipWorld, 0.65);
+      _headPos.y += 0.004;
+      spo2FingerClipRef.current.parent.worldToLocal(spo2FingerClipRef.current.position.copy(_headPos));
+      _bZ.subVectors(_knuckleWorld, _fingerTipWorld).normalize();
+      _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
+      _bX.crossVectors(_bY, _bZ).normalize();
+      _basisMat.makeBasis(_bX, _bY, _bZ);
+      _worldQuat.setFromRotationMatrix(_basisMat);
+      spo2FingerClipRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
+      spo2FingerClipRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
+    }
+
+    if (ecgCollarAnchorRef.current?.parent && B.CC_Base_NeckTwist01) {
+      B.CC_Base_NeckTwist01.updateWorldMatrix(true, false);
+      B.CC_Base_NeckTwist01.getWorldPosition(_headPos);
+      _headPos.x += 0.045;
+      _headPos.y += 0.055;
+      _headPos.z += 0.075;
+      ecgCollarAnchorRef.current.parent.worldToLocal(ecgCollarAnchorRef.current.position.copy(_headPos));
     }
   });
 
@@ -2406,6 +2526,9 @@ function PatientAndWristband({
                   <cylinderGeometry args={[0.0045, 0.0045, 0.016, 12]} />
                   <meshStandardMaterial color="#10b981" roughness={0.35} />
                 </mesh>
+                {portRefs?.o2MaskPort && (
+                  <object3D ref={portRefs.o2MaskPort} position={[0, -0.044, 0.028]} />
+                )}
               </group>
             ) : (
               /* Contoured Clear Medical-Vinyl Hudson Oxygen Mask (+ Reservoir Bag for NRB) */
@@ -2439,11 +2562,18 @@ function PatientAndWristband({
                     <meshStandardMaterial color="#10b981" roughness={0.4} />
                   </mesh>
                 ))}
-                {/* Front 22mm green oxygen swivel elbow & tubing barb */}
+                {/* Front 22mm green oxygen swivel elbow & downward tubing barb */}
                 <mesh position={[0, 0.022, 0.006]}>
                   <cylinderGeometry args={[0.011, 0.013, 0.022, 16]} />
                   <meshStandardMaterial color="#059669" roughness={0.35} />
                 </mesh>
+                <mesh position={[0, 0.028, 0.020]} rotation={[Math.PI / 2.4, 0, 0]}>
+                  <cylinderGeometry args={[0.005, 0.006, 0.018, 12]} />
+                  <meshStandardMaterial color="#10b981" roughness={0.35} />
+                </mesh>
+                {portRefs?.o2MaskPort && (
+                  <object3D ref={portRefs.o2MaskPort} position={[0, 0.030, 0.028]} />
+                )}
                 {o2Device === 'non_rebreather' && (
                   /* Clear inflated 1L Non-Rebreather Reservoir Bag */
                   <mesh position={[0, 0.052, 0.048]} rotation={[0.88, 0, 0]} scale={[0.88, 1.25, 0.62]}>
@@ -2542,36 +2672,47 @@ function PatientAndWristband({
           <cylinderGeometry args={[0.0042, 0.0042, 0.012, 14]} />
           <meshStandardMaterial color="#38bdf8" roughness={0.32} metalness={0.12} />
         </mesh>
-        {/* White medical securement tape strip */}
+        {/* White medical securement tape strip + exact IV line Luer-lock port anchor */}
         <mesh position={[0, 0.0045, 0.021]}>
           <boxGeometry args={[0.034, 0.002, 0.009]} />
           <meshStandardMaterial color="#f1f5f9" roughness={0.88} />
         </mesh>
+        {portRefs?.rightHandIvHub && (
+          <object3D ref={portRefs.rightHandIvHub} position={[0, 0.0072, 0.017]} />
+        )}
       </group>
 
-      {/* Patient ID Wristband + Red Allergy Alert Band Wrapping Around Pronated Left Wrist */}
-      <group
-        ref={leftWristRef}
-        position={[0.31, 1.174, -0.12]}
-      >
-        <mesh rotation={[0.06, -0.14, 0]} castShadow>
-          <torusGeometry args={[0.039, 0.008, 12, 24]} />
-          <meshStandardMaterial
-            color={verifiedId ? '#d1fae5' : '#f8fafc'}
-            emissive={verifiedId ? '#10b981' : '#38bdf8'}
-            emissiveIntensity={verifiedId ? 0.9 : 0.35}
-            roughness={0.38}
-          />
-        </mesh>
-        <mesh position={[0.003, 0, -0.017]} rotation={[0.06, -0.14, 0]}>
-          <torusGeometry args={[0.04, 0.0055, 10, 24]} />
-          <meshStandardMaterial
-            color="#dc2626"
-            emissive="#991b1b"
-            emissiveIntensity={0.35}
-            roughness={0.42}
-          />
-        </mesh>
+      {/* Fingertip SpO2 Pulse-Oximeter Sensor Clip on Left Index Finger + Chest Collar ECG Lead Anchor */}
+      <group ref={spo2FingerClipRef} position={[0.34, 1.16, 0.06]}>
+        {monitorConnected && (
+          <>
+            <RoundedBox args={[0.016, 0.013, 0.028]} radius={0.004}>
+              <meshStandardMaterial color="#e2e8f0" roughness={0.36} />
+            </RoundedBox>
+            <mesh position={[0, -0.001, 0]}>
+              <sphereGeometry args={[0.0035, 8, 8]} />
+              <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={1.6} toneMapped={false} />
+            </mesh>
+            <mesh position={[0, 0.002, 0.016]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.003, 0.003, 0.008, 10]} />
+              <meshStandardMaterial color="#38bdf8" roughness={0.4} />
+            </mesh>
+          </>
+        )}
+        {portRefs?.patientSpo2 && <object3D ref={portRefs.patientSpo2} position={[0, 0.002, 0.020]} />}
+      </group>
+
+      <group ref={ecgCollarAnchorRef} position={[0.05, 1.30, -0.68]}>
+        {portRefs?.patientEcg && <object3D ref={portRefs.patientEcg} position={[0, 0, 0]} />}
+      </group>
+
+      {/* Exact 3D Hospital Vinyl Snap-Closure Wristband + Printed Barcode Label + Red Allergy Clasp from Inspector */}
+      <group ref={leftWristRef} position={[0.31, 1.174, -0.12]}>
+        {bedsideWristband && (
+          <group scale={[0.0245, 0.034, 0.0255]}>
+            <primitive object={bedsideWristband.group} />
+          </group>
+        )}
       </group>
 
       {wristbandObj && (
@@ -2836,6 +2977,7 @@ const MONITOR_SCREEN_LOCAL = [0, 46.85, -4.9];
 function BedsideMonitor3D({
   patientName,
   monitorConnected = true,
+  portRefs,
   monitorObj,
   isCompleted,
   isSelected,
@@ -2939,6 +3081,7 @@ function BedsideMonitor3D({
 
   const screenW = screen.w;
   const screenH = screen.h;
+  const bedSideSign = screen.rotY > 0.5 ? -1 : 1;
 
   return (
     <group
@@ -2984,6 +3127,29 @@ function BedsideMonitor3D({
             />
           </RoundedBox>
         </group>
+
+        {/* Side Telemetry Trunk Module + Molded Strain-Relief Boots (mounted on bed-facing left side of monitor!) */}
+        <group position={[bedSideSign * (screenW / 2 + 0.016), -0.025, -0.014]}>
+          <RoundedBox args={[0.026, 0.095, 0.038]} radius={0.006}>
+            <meshStandardMaterial color="#1e293b" roughness={0.42} metalness={0.3} />
+          </RoundedBox>
+          {/* SpO2 cyan cable boot */}
+          <mesh position={[bedSideSign * 0.016, 0.022, 0]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.0055, 0.007, 0.018, 12]} />
+            <meshStandardMaterial color="#38bdf8" roughness={0.4} />
+          </mesh>
+          {portRefs?.monitorSpo2 && (
+            <object3D ref={portRefs.monitorSpo2} position={[bedSideSign * 0.025, 0.022, 0]} />
+          )}
+          {/* ECG green trunk cable boot */}
+          <mesh position={[bedSideSign * 0.016, -0.022, 0]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.0055, 0.007, 0.018, 12]} />
+            <meshStandardMaterial color="#10b981" roughness={0.4} />
+          </mesh>
+          {portRefs?.monitorEcg && (
+            <object3D ref={portRefs.monitorEcg} position={[bedSideSign * 0.025, -0.022, 0]} />
+          )}
+        </group>
       </group>
 
       {monitorObj && (
@@ -3005,6 +3171,7 @@ const VENTILATOR_POS = [-1.75, 0, -1.45]; // tucked into the headwall corner, le
 
 function WallOxygenPanel3D({
   o2Device,
+  portRefs,
   wallO2Obj,
   isCompleted,
   isSelected,
@@ -3124,11 +3291,11 @@ function WallOxygenPanel3D({
         </group>
       </group>
 
-      {/* Prefilled Sterile Water Bubble Humidifier Bottle + Green Wing-Nut Adapter Cap */}
-      <group position={[x, 1.19, z + 0.025]}>
+      {/* Prefilled Sterile Water Bubble Humidifier Bottle + Green Wing-Nut Adapter Cap (threaded flush to manifold) */}
+      <group position={[x, 1.222, z + 0.025]}>
         {/* Wing-nut DISS top adapter + green diffuser cap */}
         <mesh position={[0, 0.098, 0]}>
-          <cylinderGeometry args={[0.014, 0.014, 0.022, 16]} />
+          <cylinderGeometry args={[0.014, 0.014, 0.026, 16]} />
           <meshStandardMaterial color="#16a34a" roughness={0.38} />
         </mesh>
         <mesh position={[0, 0.076, 0]}>
@@ -3148,11 +3315,12 @@ function WallOxygenPanel3D({
           <cylinderGeometry args={[0.003, 0.003, 0.115, 10]} />
           <meshStandardMaterial color="#e2e8f0" roughness={0.3} />
         </mesh>
-        {/* Angled front oxygen tubing barb */}
-        <mesh position={[0, 0.074, 0.032]} rotation={[0.65, 0, 0]}>
-          <cylinderGeometry args={[0.0055, 0.007, 0.026, 12]} />
+        {/* Downward-angled front oxygen tubing barb emerging from green diffuser cap + exact world port anchor */}
+        <mesh position={[0, 0.070, 0.043]} rotation={[2.12, 0, 0]}>
+          <cylinderGeometry args={[0.0048, 0.0068, 0.024, 12]} />
           <meshStandardMaterial color="#f8fafc" roughness={0.35} />
         </mesh>
+        {portRefs?.o2WallBarb && <object3D ref={portRefs.o2WallBarb} position={[0, 0.0637, 0.0532]} />}
       </group>
 
       {wallO2Obj && (
@@ -3244,18 +3412,22 @@ function makePcaPumpScreenTexture(paused) {
 
 function IvPumpPole3D({
   pcaPaused,
+  portRefs,
   ivPumpObj,
   isCompleted,
   isSelected,
   onSelectObject,
 }) {
   const { scene } = useGLTF('/models/iv_pole.glb');
+  const dripDropRef = useRef();
   const pumpScreenTex = useMemo(() => makePcaPumpScreenTexture(pcaPaused), [pcaPaused]);
   useEffect(() => () => pumpScreenTex?.dispose(), [pumpScreenTex]);
 
-  // Fit `iv_pole.glb` (which ALREADY includes a photorealistic 3D scanned IV bag + clear tubing on its hook!)
-  // and measure the exact vertical pole shaft (shaftX, shaftZ) so the Smart PCA Pump clamps flush onto the pole!
-  const { fittedPole, shaftX, shaftZ } = useMemo(() => {
+  // Fit `iv_pole.glb` and measure BOTH:
+  //   1) exact vertical pole shaft (shaftX, shaftZ), AND
+  //   2) exact bottom tip of the hanging scanned IV bag's black spike port (spikeX, spikeY, spikeZ)
+  // so a clear medical Drip Chamber attaches directly to the bag spike and feeds into the Smart PCA Pump!
+  const { fittedPole, shaftX, shaftZ, spikeX, spikeY, spikeZ } = useMemo(() => {
     const fitted = fitModel(scene, {
       axis: 'height',
       target: 2.4,
@@ -3290,12 +3462,47 @@ function IvPumpPole3D({
         }
       }
     });
+    const cx = count > 0 ? sx / count : 0;
+    const cz = count > 0 ? sz / count : 0;
+
+    // Locate the lowest vertex of the hanging IV bag's spike port (`y in [1.62, 2.08]` offset > 6cm from shaft)
+    let minBagY = Infinity;
+    let bx = cx - 0.18;
+    let bz = cz;
+    fitted.traverse((m) => {
+      if (!m.isMesh || !m.geometry?.attributes?.position) return;
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        if (v.y >= 1.62 && v.y <= 2.08 && Math.hypot(v.x - cx, v.z - cz) > 0.06) {
+          if (v.y < minBagY) {
+            minBagY = v.y;
+            bx = v.x;
+            bz = v.z;
+          }
+        }
+      }
+    });
     return {
       fittedPole: fitted,
-      shaftX: count > 0 ? sx / count : 0,
-      shaftZ: count > 0 ? sz / count : 0,
+      shaftX: cx,
+      shaftZ: cz,
+      spikeX: bx,
+      spikeY: Number.isFinite(minBagY) ? minBagY : 1.82,
+      spikeZ: bz,
     };
   }, [scene]);
+
+  useFrame((state) => {
+    if (dripDropRef.current) {
+      if (pcaPaused) {
+        dripDropRef.current.position.y = -0.008;
+      } else {
+        const u = (state.clock.elapsedTime * 1.35) % 1;
+        dripDropRef.current.position.y = -0.006 - u * 0.036;
+      }
+    }
+  });
 
   return (
     <group
@@ -3303,6 +3510,34 @@ function IvPumpPole3D({
       rotation={[0, Math.PI, 0]}
     >
       <primitive object={fittedPole} />
+
+      {/* Clear Medical IV Drip Chamber attached flush onto the scanned IV bag's black spike port! */}
+      <group position={[spikeX, spikeY, spikeZ]}>
+        {/* White Luer spike collar gripping the bag's black outlet */}
+        <mesh position={[0, 0.005, 0]}>
+          <cylinderGeometry args={[0.007, 0.008, 0.016, 14]} />
+          <meshStandardMaterial color="#f8fafc" roughness={0.35} />
+        </mesh>
+        {/* Clear polycarbonate drip chamber + lower fluid meniscus + falling droplet */}
+        <mesh position={[0, -0.028, 0]}>
+          <cylinderGeometry args={[0.011, 0.0095, 0.056, 16]} />
+          <meshPhysicalMaterial color="#f0f9ff" transparent opacity={0.46} roughness={0.1} />
+        </mesh>
+        <mesh position={[0, -0.044, 0]}>
+          <cylinderGeometry args={[0.0095, 0.0085, 0.022, 14]} />
+          <meshPhysicalMaterial color="#bae6fd" transparent opacity={0.58} roughness={0.1} />
+        </mesh>
+        <mesh ref={dripDropRef} position={[0, -0.012, 0]}>
+          <sphereGeometry args={[0.0032, 8, 8]} />
+          <meshPhysicalMaterial color="#e0f2fe" transparent opacity={0.75} roughness={0.08} />
+        </mesh>
+        {/* Bottom tapered tubing bushing + exact port anchor */}
+        <mesh position={[0, -0.061, 0]}>
+          <cylinderGeometry args={[0.0055, 0.004, 0.014, 12]} />
+          <meshStandardMaterial color="#38bdf8" roughness={0.35} />
+        </mesh>
+        {portRefs?.ivDripBottom && <object3D ref={portRefs.ivDripBottom} position={[0, -0.068, 0]} />}
+      </group>
 
       {/* Pole-Clamped BD Alaris / Hospira Smart Morphine PCA Syringe Infusion Pump
           (World yaw +0.52 rad faces squarely toward both IV Infusion Pump & Doorway cameras!) */}
@@ -3407,11 +3642,21 @@ function IvPumpPole3D({
             <cylinderGeometry args={[0.008, 0.008, 0.012, 14]} />
             <meshStandardMaterial color="#cbd5e1" metalness={0.88} roughness={0.22} />
           </mesh>
-          {/* Bottom Luer-lock infusion tubing outlet */}
+          {/* Top Luer-lock supply inlet manifold + Bottom Luer-lock patient outlet */}
+          <mesh position={[0.072, 0.148, 0.048]}>
+            <cylinderGeometry args={[0.0055, 0.007, 0.022, 12]} />
+            <meshStandardMaterial color="#38bdf8" roughness={0.35} />
+          </mesh>
+          {portRefs?.pcaPumpInlet && (
+            <object3D ref={portRefs.pcaPumpInlet} position={[0.072, 0.159, 0.048]} />
+          )}
           <mesh position={[0.072, -0.148, 0.048]}>
             <cylinderGeometry args={[0.007, 0.005, 0.024, 12]} />
             <meshStandardMaterial color="#38bdf8" roughness={0.35} />
           </mesh>
+          {portRefs?.pcaPumpOutlet && (
+            <object3D ref={portRefs.pcaPumpOutlet} position={[0.072, -0.160, 0.048]} />
+          )}
         </group>
       </group>
 
@@ -3629,31 +3874,143 @@ function EhrWorkstationCart3D({
   );
 }
 
-/* ---------- Catmull-Rom 3D Medical Tubing & Monitor Leads ---------- */
-function SplineTube({
-  points,
-  radius = 0.008,
+/* ---------- Live Port-Anchored 3D Medical Tubing & Telemetry Leads (0.0mm Gap at Both Ends!) ---------- */
+const _tubeStart = new THREE.Vector3();
+const _tubeEnd = new THREE.Vector3();
+
+function buildCatenaryControlPoints(a, b, mode) {
+  if (mode === 'iv_supply') {
+    // Upper IV bag drip chamber -> Smart PCA Pump top Luer inlet (gentle downward S-curve)
+    return [
+      a.clone(),
+      new THREE.Vector3(a.x, a.y - 0.055, a.z),
+      new THREE.Vector3(
+        THREE.MathUtils.lerp(a.x, b.x, 0.45),
+        THREE.MathUtils.lerp(a.y, b.y, 0.52) - 0.035,
+        THREE.MathUtils.lerp(a.z, b.z, 0.45) + 0.025
+      ),
+      new THREE.Vector3(b.x, b.y + 0.048, b.z + 0.008),
+      b.clone(),
+    ];
+  }
+  if (mode === 'iv_patient') {
+    // Smart PCA Pump bottom outlet -> natural gravity loop -> right-hand dorsal IV catheter hub
+    const sagY = Math.min(a.y, b.y) - 0.14;
+    return [
+      a.clone(),
+      new THREE.Vector3(a.x, a.y - 0.065, a.z + 0.012),
+      new THREE.Vector3(
+        THREE.MathUtils.lerp(a.x, b.x, 0.36),
+        sagY,
+        THREE.MathUtils.lerp(a.z, b.z, 0.36) + 0.03
+      ),
+      new THREE.Vector3(
+        THREE.MathUtils.lerp(a.x, b.x, 0.72),
+        b.y - 0.012,
+        THREE.MathUtils.lerp(a.z, b.z, 0.72) - 0.015
+      ),
+      new THREE.Vector3(b.x - 0.025, b.y + 0.002, b.z - 0.022),
+      b.clone(),
+    ];
+  }
+  if (mode === 'o2') {
+    // Headwall humidifier angled front barb -> pillow shoulder -> mask 22mm swivel / cannula slider
+    const midY = Math.min(a.y, b.y) - 0.11;
+    return [
+      a.clone(),
+      new THREE.Vector3(a.x, a.y - 0.032, a.z + 0.055),
+      new THREE.Vector3(
+        THREE.MathUtils.lerp(a.x, b.x, 0.38),
+        midY,
+        THREE.MathUtils.lerp(a.z, b.z, 0.38)
+      ),
+      new THREE.Vector3(
+        THREE.MathUtils.lerp(a.x, b.x, 0.74),
+        Math.max(1.17, b.y - 0.085),
+        THREE.MathUtils.lerp(a.z, b.z, 0.76) + 0.035
+      ),
+      new THREE.Vector3(b.x - 0.018, b.y - 0.018, b.z + 0.028),
+      b.clone(),
+    ];
+  }
+  // Monitor side trunk port -> graceful bedside drape -> patient finger clip or gown neckline
+  const lowY = Math.min(a.y, b.y) - 0.08;
+  return [
+    a.clone(),
+    new THREE.Vector3(a.x - 0.055, a.y - 0.025, a.z + 0.015),
+    new THREE.Vector3(
+      THREE.MathUtils.lerp(a.x, b.x, 0.42),
+      lowY,
+      THREE.MathUtils.lerp(a.z, b.z, 0.42) + 0.04
+    ),
+    new THREE.Vector3(
+      THREE.MathUtils.lerp(a.x, b.x, 0.78),
+      b.y + 0.018,
+      THREE.MathUtils.lerp(a.z, b.z, 0.78) + 0.02
+    ),
+    b.clone(),
+  ];
+}
+
+function LiveConnectedTube({
+  startRef,
+  endRef,
+  mode = 'iv_patient',
+  radius = 0.0042,
   color = '#e2e8f0',
-  opacity = 1,
+  opacity = 0.78,
   emissive = '#000000',
   emissiveIntensity = 0,
 }) {
-  const pointsKey = JSON.stringify(points);
-  const geometry = useMemo(() => {
-    const pts = points.map((p) => new THREE.Vector3(...p));
+  const meshRef = useRef();
+  const lastARef = useRef(new THREE.Vector3(999, 999, 999));
+  const lastBRef = useRef(new THREE.Vector3(999, 999, 999));
+  const geoRef = useRef(null);
+
+  useEffect(
+    () => () => {
+      geoRef.current?.dispose();
+    },
+    []
+  );
+
+  useFrame(() => {
+    const sObj = startRef?.current;
+    const eObj = endRef?.current;
+    const mesh = meshRef.current;
+    if (!sObj || !eObj || !mesh) return;
+
+    sObj.updateWorldMatrix(true, false);
+    eObj.updateWorldMatrix(true, false);
+    sObj.getWorldPosition(_tubeStart);
+    eObj.getWorldPosition(_tubeEnd);
+
+    if (
+      _tubeStart.distanceToSquared(lastARef.current) < 2.2e-6 &&
+      _tubeEnd.distanceToSquared(lastBRef.current) < 2.2e-6 &&
+      geoRef.current
+    ) {
+      return;
+    }
+    lastARef.current.copy(_tubeStart);
+    lastBRef.current.copy(_tubeEnd);
+
+    const pts = buildCatenaryControlPoints(_tubeStart, _tubeEnd, mode);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
-    return new THREE.TubeGeometry(curve, 72, radius, 10, false);
-    // Keyed on the point VALUES: inline arrays are new every render and would otherwise rebuild
-    // (and leak) the tube geometry on every parent re-render.
-  }, [pointsKey, radius]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => geometry.dispose(), [geometry]);
+    const nextGeo = new THREE.TubeGeometry(curve, 52, radius, 9, false);
+    const prevGeo = geoRef.current;
+    geoRef.current = nextGeo;
+    mesh.geometry = nextGeo;
+    mesh.visible = true;
+    prevGeo?.dispose();
+  });
 
   return (
-    <mesh geometry={geometry} castShadow>
+    <mesh ref={meshRef} visible={false} frustumCulled={false}>
       <meshStandardMaterial
         color={color}
-        roughness={0.35}
-        metalness={0.1}
+        roughness={0.32}
+        metalness={0.06}
         transparent={opacity < 1}
         opacity={opacity}
         emissive={emissive}
@@ -3664,85 +4021,65 @@ function SplineTube({
   );
 }
 
-/** O2 mask attachment point (world) at 0° / 30° / 60° head-of-bed, measured from AccuRIG CC_Base_Head. */
-const MASK_AT_ANGLE = [
-  [0, [0.09, 1.325, -0.87]],
-  [30, [0.09, 1.56, -0.7]],
-  [60, [0.09, 1.695, -0.435]],
-];
-function maskPointForAngle(deg) {
-  const a = THREE.MathUtils.clamp(deg, 0, 60);
-  const i = a <= 30 ? 0 : 1;
-  const [a0, p0] = MASK_AT_ANGLE[i];
-  const [a1, p1] = MASK_AT_ANGLE[i + 1];
-  const t = (a - a0) / (a1 - a0);
-  return p0.map((v, k) => v + (p1[k] - v) * t);
-}
-
-function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle = 0 }) {
-  const [mx, my, mz] = maskPointForAngle(bedAngle);
+function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, portRefs }) {
+  if (!portRefs) return null;
   return (
     <group>
-      {/* Slim translucent medical oxygen tubing curving smoothly from humidifier barb under chin into mask */}
-      {o2Device && (
-      <SplineTube
-        color="#a7f3d0"
-        emissive="#10b981"
-        emissiveIntensity={0.18}
-        opacity={0.72}
-        radius={0.0048}
-        points={[
-          [-0.98, 1.26, -1.798],
-          [-0.84, 1.04, -1.52],
-          [-0.52, 1.08, -1.18],
-          [-0.24, Math.max(1.16, my - 0.18), mz - 0.04],
-          [mx - 0.04, my - 0.055, mz + 0.045],
-          [mx, my - 0.015, mz + 0.015],
-        ]}
+      {/* 1. Upper IV Supply Line: Scanned IV Bag Drip Chamber -> Smart PCA Pump Top Luer Inlet */}
+      <LiveConnectedTube
+        startRef={portRefs.ivDripBottom}
+        endRef={portRefs.pcaPumpInlet}
+        mode="iv_supply"
+        color="#e0f2fe"
+        opacity={0.74}
+        radius={0.0038}
       />
-      )}
 
-      {/* ECG & SpO2 telemetry leads are applied when the monitor is powered on */}
-      {monitorConnected && (
-      <>
-      <SplineTube
-        color="#f1f5f9"
-        radius={0.007}
-        points={[
-          [1.41, 1.75, -0.66],
-          [1.08, 1.48, -0.66],
-          [0.62, 1.36, -0.64],
-          [0.3, 1.3, -0.63],
-          [0.1, 1.27, -0.62],
-        ]}
-      />
-      <SplineTube
-        color="#94a3b8"
-        radius={0.007}
-        points={[
-          [1.41, 1.68, -0.7],
-          [1.04, 1.44, -0.7],
-          [0.58, 1.34, -0.66],
-          [0.26, 1.29, -0.63],
-          [-0.03, 1.27, -0.61],
-        ]}
-      />
-      </>
-      )}
-
-      {/* IV Morphine PCA Line: Smart PCA Syringe Pump Outlet -> Patient Right Hand IV Hub */}
-      <SplineTube
+      {/* 2. Patient IV Infusion Line: Smart PCA Pump Bottom Luer Outlet -> Right-Hand Dorsal IV Catheter Hub */}
+      <LiveConnectedTube
+        startRef={portRefs.pcaPumpOutlet}
+        endRef={portRefs.rightHandIvHub}
+        mode="iv_patient"
         color={pcaPaused ? '#cbd5e1' : '#e0f2fe'}
-        radius={0.0045}
-        opacity={0.72}
-        points={[
-          [-1.02, 1.11, -0.06],
-          [-0.86, 0.99, -0.05],
-          [-0.64, 1.13, -0.07],
-          [-0.45, 1.17, -0.06],
-          [-0.295, 1.194, -0.03],
-        ]}
+        opacity={0.76}
+        radius={0.004}
       />
+
+      {/* 3. Supplemental Oxygen Tubing: Humidifier Angled Front Barb -> Patient Mask / Cannula Connector */}
+      {o2Device && (
+        <LiveConnectedTube
+          startRef={portRefs.o2WallBarb}
+          endRef={portRefs.o2MaskPort}
+          mode="o2"
+          color="#a7f3d0"
+          emissive="#10b981"
+          emissiveIntensity={0.14}
+          opacity={0.72}
+          radius={0.0044}
+        />
+      )}
+
+      {/* 4 & 5. Bedside Monitor Leads: Side Trunk Module -> Left Finger SpO2 Clip & Chest Collar ECG */}
+      {monitorConnected && (
+        <>
+          <LiveConnectedTube
+            startRef={portRefs.monitorSpo2}
+            endRef={portRefs.patientSpo2}
+            mode="monitor"
+            color="#e2e8f0"
+            opacity={0.95}
+            radius={0.0042}
+          />
+          <LiveConnectedTube
+            startRef={portRefs.monitorEcg}
+            endRef={portRefs.patientEcg}
+            mode="monitor"
+            color="#94a3b8"
+            opacity={0.95}
+            radius={0.0045}
+          />
+        </>
+      )}
     </group>
   );
 }
@@ -3849,6 +4186,33 @@ const Room3D = React.memo(function Room3D({
   const isAnimatingRef = useRef(false);
   const [scrubStyle, setScrubStyle] = useState('plum');
   const [dpr, setDpr] = useState(() => dprForMode(quality));
+
+  // Live 3D apparatus & patient connector port anchors (guarantees 0.0mm tube attachment gaps!)
+  const o2WallBarbRef = useRef();
+  const o2MaskPortRef = useRef();
+  const ivDripBottomRef = useRef();
+  const pcaPumpInletRef = useRef();
+  const pcaPumpOutletRef = useRef();
+  const rightHandIvHubRef = useRef();
+  const monitorSpo2Ref = useRef();
+  const monitorEcgRef = useRef();
+  const patientSpo2Ref = useRef();
+  const patientEcgRef = useRef();
+  const portRefs = useMemo(
+    () => ({
+      o2WallBarb: o2WallBarbRef,
+      o2MaskPort: o2MaskPortRef,
+      ivDripBottom: ivDripBottomRef,
+      pcaPumpInlet: pcaPumpInletRef,
+      pcaPumpOutlet: pcaPumpOutletRef,
+      rightHandIvHub: rightHandIvHubRef,
+      monitorSpo2: monitorSpo2Ref,
+      monitorEcg: monitorEcgRef,
+      patientSpo2: patientSpo2Ref,
+      patientEcg: patientEcgRef,
+    }),
+    []
+  );
   const nurseStateRef = useRef({
     pos: new THREE.Vector3(0.25, 0, 2.35),
     goalPos: new THREE.Vector3(0.25, 0, 2.35),
@@ -4011,6 +4375,7 @@ const Room3D = React.memo(function Room3D({
               />
 
               <PatientAndWristband
+                patient={scenarioData.patient}
                 bedAngle={Math.max(0, bedAngle)}
                 o2Device={o2Device}
                 verifiedId={verifiedId}
@@ -4018,6 +4383,7 @@ const Room3D = React.memo(function Room3D({
                 crystalloidBolus={crystalloidBolus}
                 distressEmoteVisible={distressEmoteVisible}
                 nurseStateRef={nurseStateRef}
+                portRefs={portRefs}
                 vitals={vitals}
                 monitorConnected={monitorConnected}
                 verbalCues={scenarioData.patient_verbal_cues}
@@ -4044,18 +4410,21 @@ const Room3D = React.memo(function Room3D({
             <BedsideMonitor3D
               patientName={scenarioData.patient.name}
               monitorConnected={monitorConnected}
+              portRefs={portRefs}
               monitorObj={getObj('bedside_monitor')}
               {...sel('bedside_monitor')}
             />
 
             <WallOxygenPanel3D
               o2Device={o2Device}
+              portRefs={portRefs}
               wallO2Obj={getObj('wall_oxygen')}
               {...sel('wall_oxygen')}
             />
 
             <IvPumpPole3D
               pcaPaused={pcaPaused}
+              portRefs={portRefs}
               ivPumpObj={getObj('iv_pump')}
               {...sel('iv_pump')}
             />
@@ -4069,7 +4438,7 @@ const Room3D = React.memo(function Room3D({
               o2Device={o2Device}
               pcaPaused={pcaPaused}
               monitorConnected={monitorConnected}
-              bedAngle={Math.max(0, bedAngle)}
+              portRefs={portRefs}
             />
           </Suspense>
         </group>

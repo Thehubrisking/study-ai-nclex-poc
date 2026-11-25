@@ -8,7 +8,7 @@ import { RotateCw, ZoomIn, ZoomOut, ScanLine, CheckCircle2, X } from 'lucide-rea
  * Renders the high-DPI thermal-printed hospital wristband label texture
  * modeled directly after clinical vinyl snap-closure wristbands (`media_1795620814934_f0ea56e1.jpg`).
  */
-function createThermalLabelTexture(patient) {
+export function createThermalLabelTexture(patient) {
   const canvas = document.createElement('canvas');
   canvas.width = 2048;
   canvas.height = 640;
@@ -109,7 +109,7 @@ function createThermalLabelTexture(patient) {
 /**
  * Secondary embossed crimson allergy tag texture on the opposite side of the strap.
  */
-function createAllergyClaspTexture() {
+export function createAllergyClaspTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 192;
@@ -145,7 +145,8 @@ function createAllergyClaspTexture() {
  *   - Overlapping 3D snap-rivet clasp tab + hollow snap button on the right shoulder.
  *   - Crimson allergy alert band clip on the back-left strap.
  */
-function buildWristbandArtifactGroup(labelTex, allergyTex) {
+export function buildWristbandArtifactGroup(labelTex, allergyTex, opts = {}) {
+  const includeLaser = opts.includeLaser !== false;
   const group = new THREE.Group();
 
   const RX = 1.42;
@@ -413,18 +414,22 @@ function buildWristbandArtifactGroup(labelTex, allergyTex) {
   );
   group.add(alMesh);
 
-  // 6. Laser Scanner Beam Mesh (sweeps across barcode when user clicks Scan)
-  const laserGeo = new THREE.PlaneGeometry(1.75, 0.025);
-  const laserMat = new THREE.MeshBasicMaterial({
-    color: '#ef4444',
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    depthTest: false,
-  });
-  const laserMesh = new THREE.Mesh(laserGeo, laserMat);
-  laserMesh.position.set(0, 0, RZ + 0.06);
-  group.add(laserMesh);
+  // 6. Laser Scanner Beam Mesh (sweeps across barcode when user clicks Scan in inspector)
+  let laserMesh = null;
+  let laserMat = null;
+  if (includeLaser) {
+    const laserGeo = new THREE.PlaneGeometry(1.75, 0.025);
+    laserMat = new THREE.MeshBasicMaterial({
+      color: '#ef4444',
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    });
+    laserMesh = new THREE.Mesh(laserGeo, laserMat);
+    laserMesh.position.set(0, 0, RZ + 0.06);
+    group.add(laserMesh);
+  }
 
   return { group, laserMesh, laserMat };
 }
