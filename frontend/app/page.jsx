@@ -1040,7 +1040,7 @@ export default function StudyAiExamPage() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: isPhone ? '6px' : '12px',
-                flexWrap: isPhone ? 'nowrap' : 'wrap',
+                flexWrap: 'nowrap',
               }}
             >
               {/* LEFT: S Monogram + Scenario Title + Patient Pill (Figma 36:8..36:13) */}
@@ -1108,54 +1108,30 @@ export default function StudyAiExamPage() {
                 </div>
 
                 {distressEmoteActive && !distressPopoverVisible && (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      onClick={handleInspectDistress}
-                      title="Open 3D Patient Cue Inspector"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        height: '31px',
-                        padding: '0 12px',
-                        borderRadius: '999px',
-                        background: distressInspectorOpen ? '#143528' : 'rgba(232, 176, 75, 0.14)',
-                        border: distressInspectorOpen ? '1px solid #6fd1a9' : '1px solid #e8b04b',
-                        color: distressInspectorOpen ? '#6fd1a9' : '#fde68a',
-                        fontSize: '12px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <span>😮‍💨</span>
-                      <span>{isPhone ? '3D Cue' : '3D Patient Cue'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleWatchDistressFilm}
-                      title="Watch 1080p Live-Action Patient Observation Film"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        height: '31px',
-                        padding: '0 11px',
-                        borderRadius: '999px',
-                        background: 'rgba(232, 176, 75, 0.18)',
-                        border: '1px solid #e8b04b',
-                        color: '#fde68a',
-                        fontSize: '12px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <span>▶</span>
-                      <span>{isPhone ? 'Film' : 'Live Film'}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleInspectDistress}
+                    title="Open 3D Patient Cue Inspector & Live Film"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      height: '31px',
+                      padding: '0 11px',
+                      borderRadius: '999px',
+                      background: distressInspectorOpen ? '#143528' : 'rgba(232, 176, 75, 0.15)',
+                      border: distressInspectorOpen ? '1px solid #6fd1a9' : '1px solid #e8b04b',
+                      color: distressInspectorOpen ? '#6fd1a9' : '#fde68a',
+                      fontSize: '11.5px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span>😮‍💨</span>
+                    <span>{isPhone ? 'Cue' : 'Patient Cue'}</span>
+                  </button>
                 )}
               </div>
 

@@ -128,28 +128,28 @@ function enhanceInspectorSkinMaterial(srcMat, uniforms) {
 }
 
 // Spherical camera presets relative to measured CC_Base_Head world anchor:
-// azimuth > 0 = nurse's left-bedside viewpoint (+X); elevation = angle above horizontal looking onto pillow
+// CC_Base_Head pivot sits at C1/skull base; (+0.115 Y, -0.065 Z) centers right on the eyes/brow/nose!
 const CAMERA_VIEWS = {
   face: {
     label: 'Face & Sweat',
-    azimuth: 0.44,
-    elevation: 0.64,
-    radius: 0.50,
-    offset: [0.01, 0.03, 0.05],
+    azimuth: 0.38,
+    elevation: 0.82,
+    radius: 0.62,
+    offset: [0.0, 0.115, -0.065],
   },
   airway: {
     label: 'Airway & Lips',
     azimuth: 0.24,
-    elevation: 0.48,
-    radius: 0.38,
-    offset: [0.01, -0.02, 0.08],
+    elevation: 0.66,
+    radius: 0.46,
+    offset: [0.01, 0.085, -0.03],
   },
   chest: {
     label: 'Chest Effort',
-    azimuth: 0.54,
-    elevation: 0.58,
-    radius: 0.80,
-    offset: [0.0, -0.12, 0.18],
+    azimuth: 0.48,
+    elevation: 0.70,
+    radius: 0.86,
+    offset: [0.0, 0.03, 0.06],
   },
 };
 
@@ -258,14 +258,10 @@ export default function PatientDistressInspector3D({
     backrestGroup.position.set(0, 1.072, -0.31);
     backrestGroup.rotation.x = elevRad * 0.76;
 
-    const upperSheet = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.06, 0.86), sheetMat);
-    upperSheet.position.set(0, 0.004, -0.45);
+    const upperSheet = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.045, 0.56), sheetMat);
+    upperSheet.position.set(0, 0.008, -0.64);
     backrestGroup.add(upperSheet);
     stageGroup.add(backrestGroup);
-
-    const lowerMattress = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.08, 1.55), sheetMat);
-    lowerMattress.position.set(0, 1.068, 0.44);
-    stageGroup.add(lowerMattress);
 
     const loader = new GLTFLoader();
     const bonesMap = {};

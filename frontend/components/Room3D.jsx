@@ -2317,7 +2317,9 @@ function PatientAndWristband({
     );
 
     // 5. Relaxed knees, natural external hip turnout, plantarflexed ankles & toes nestled in bed depressions
-    const legShift = isDistressed ? Math.sin(elapsed * 1.15) * 0.032 : Math.sin(elapsed * 0.32) * 0.008;
+    const legShift = videoDistressActive
+      ? Math.sin(elapsed * 1.15) * 0.032
+      : Math.sin(elapsed * 0.32) * 0.008;
     const gatch = elevRad * 0.06;
     setNurseCharRotation(B.CC_Base_L_Thigh, -0.17 - gatch + legShift, -0.13, 0.03);
     setNurseCharRotation(B.CC_Base_L_Calf, 0.28 + gatch * 1.25, 0, 0);
@@ -2519,7 +2521,7 @@ function PatientDistressEmote3D({ bedAngle = 0, visible = false, onInspect }) {
   const accentColor = '#e8b04b';
 
   return (
-    <group position={[0.22, 1.56 + elevY, -0.78]}>
+    <group position={[0.34, 1.62 + elevY, -0.96]}>
       <Html center zIndexRange={[23, 0]}>
         <button
           type="button"
