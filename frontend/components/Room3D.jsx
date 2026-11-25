@@ -2383,18 +2383,82 @@ function PatientAndWristband({
       {/* Supplemental Oxygen Mask / Nasal Cannula + Floating Patient Speech Bubble */}
       <group ref={headOverlayRef} position={[0, 1.34, -0.92]}>
         {o2Device && (
-          <mesh ref={maskRef}>
-            <coneGeometry args={[0.075, 0.11, 20]} />
-            <meshStandardMaterial
-              color="#34d399"
-              transparent
-              opacity={0.62}
-              roughness={0.18}
-              emissive="#10b981"
-              emissiveIntensity={0.8}
-              toneMapped={false}
-            />
-          </mesh>
+          <group ref={maskRef}>
+            {o2Device === 'nasal_cannula' ? (
+              /* Clear Medical PVC Nasal Cannula Loops & Prongs (zero cartoon cone!) */
+              <group rotation={[-Math.PI / 2, 0, 0]}>
+                <mesh position={[0, 0.012, 0.018]}>
+                  <torusGeometry args={[0.048, 0.0032, 10, 28, Math.PI * 1.15]} />
+                  <meshPhysicalMaterial
+                    color="#d1fae5"
+                    transparent
+                    opacity={0.62}
+                    roughness={0.18}
+                  />
+                </mesh>
+                {[-0.006, 0.006].map((px) => (
+                  <mesh key={px} position={[px, 0.022, -0.012]} rotation={[0.35, 0, 0]}>
+                    <cylinderGeometry args={[0.0022, 0.0026, 0.014, 10]} />
+                    <meshPhysicalMaterial color="#ecfdf5" transparent opacity={0.72} roughness={0.2} />
+                  </mesh>
+                ))}
+                <mesh position={[0, -0.036, 0.028]}>
+                  <cylinderGeometry args={[0.0045, 0.0045, 0.016, 12]} />
+                  <meshStandardMaterial color="#10b981" roughness={0.35} />
+                </mesh>
+              </group>
+            ) : (
+              /* Contoured Clear Medical-Vinyl Hudson Oxygen Mask (+ Reservoir Bag for NRB) */
+              <group>
+                {/* Clear anatomical face-cup dome */}
+                <mesh position={[0, -0.018, 0]} scale={[0.82, 1.0, 1.08]}>
+                  <cylinderGeometry args={[0.024, 0.052, 0.072, 24, 1, true]} />
+                  <meshPhysicalMaterial
+                    color="#e6fffa"
+                    transparent
+                    opacity={0.44}
+                    roughness={0.14}
+                    metalness={0.02}
+                    side={THREE.DoubleSide}
+                  />
+                </mesh>
+                {/* Soft seafoam-mint anatomical face cushion rim */}
+                <mesh position={[0, -0.052, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[0.82, 1.08, 1]}>
+                  <torusGeometry args={[0.051, 0.0055, 12, 28]} />
+                  <meshStandardMaterial color="#34d399" roughness={0.55} transparent opacity={0.82} />
+                </mesh>
+                {/* Malleable aluminum nose-bridge strip */}
+                <mesh position={[0, -0.026, -0.038]} rotation={[0.42, 0, 0]}>
+                  <torusGeometry args={[0.018, 0.0022, 8, 16, Math.PI]} />
+                  <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.22} />
+                </mesh>
+                {/* Bilateral exhalation valve discs */}
+                {[-0.032, 0.032].map((vx) => (
+                  <mesh key={vx} position={[vx, -0.022, 0.008]} rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.009, 0.009, 0.004, 14]} />
+                    <meshStandardMaterial color="#10b981" roughness={0.4} />
+                  </mesh>
+                ))}
+                {/* Front 22mm green oxygen swivel elbow & tubing barb */}
+                <mesh position={[0, 0.022, 0.006]}>
+                  <cylinderGeometry args={[0.011, 0.013, 0.022, 16]} />
+                  <meshStandardMaterial color="#059669" roughness={0.35} />
+                </mesh>
+                {o2Device === 'non_rebreather' && (
+                  /* Clear inflated 1L Non-Rebreather Reservoir Bag */
+                  <mesh position={[0, 0.052, 0.048]} rotation={[0.88, 0, 0]} scale={[0.88, 1.25, 0.62]}>
+                    <sphereGeometry args={[0.042, 18, 14]} />
+                    <meshPhysicalMaterial
+                      color="#ecfdf5"
+                      transparent
+                      opacity={0.38}
+                      roughness={0.16}
+                    />
+                  </mesh>
+                )}
+              </group>
+            )}
+          </group>
         )}
 
         {/* Interactive Patient Verbal Assessment Bubble — Matches Figma 36:80 / 29:3851 */}
@@ -2455,20 +2519,33 @@ function PatientAndWristband({
         )}
       </group>
 
-      {/* Procedural IV Cannula on Dorsum (Back) of Patient's Pronated Right Hand */}
+      {/* Transparent Tegaderm IV Site Dressing + 20G Catheter Hub & J-Loop on Pronated Right Hand */}
       <group ref={rightHandIvRef} position={[-0.295, 1.188, -0.04]} rotation={[0, 0.16, 0]}>
-        <mesh>
-          <boxGeometry args={[0.048, 0.005, 0.062]} />
-          <meshStandardMaterial
-            color="#eef1f4"
-            transparent
-            opacity={0.82}
-            roughness={0.9}
-          />
+        {/* White paper-frame border around clear semi-permeable polyurethane Tegaderm film */}
+        <RoundedBox args={[0.046, 0.0025, 0.056]} radius={0.001} position={[0, 0.002, 0]}>
+          <meshStandardMaterial color="#f8fafc" roughness={0.82} />
+        </RoundedBox>
+        <mesh position={[0, 0.0036, 0]}>
+          <boxGeometry args={[0.036, 0.0015, 0.044]} />
+          <meshPhysicalMaterial color="#e2e8f0" transparent opacity={0.36} roughness={0.18} />
         </mesh>
-        <mesh position={[0, 0.009, -0.008]} rotation={[Math.PI / 2 - 0.12, 0, 0]}>
-          <cylinderGeometry args={[0.007, 0.008, 0.036, 12]} />
-          <meshStandardMaterial color="#38bdf8" roughness={0.4} metalness={0.2} />
+        {/* Stabilization wings + pink 20G IV catheter hub + Luer-lock needleless connector */}
+        <mesh position={[0, 0.005, -0.004]}>
+          <boxGeometry args={[0.018, 0.0022, 0.009]} />
+          <meshStandardMaterial color="#f472b6" roughness={0.42} />
+        </mesh>
+        <mesh position={[0, 0.0068, -0.004]} rotation={[Math.PI / 2 - 0.08, 0, 0]}>
+          <cylinderGeometry args={[0.0034, 0.0044, 0.022, 14]} />
+          <meshStandardMaterial color="#ec4899" roughness={0.36} />
+        </mesh>
+        <mesh position={[0, 0.0072, 0.011]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.0042, 0.0042, 0.012, 14]} />
+          <meshStandardMaterial color="#38bdf8" roughness={0.32} metalness={0.12} />
+        </mesh>
+        {/* White medical securement tape strip */}
+        <mesh position={[0, 0.0045, 0.021]}>
+          <boxGeometry args={[0.034, 0.002, 0.009]} />
+          <meshStandardMaterial color="#f1f5f9" roughness={0.88} />
         </mesh>
       </group>
 
@@ -2891,17 +2968,22 @@ function BedsideMonitor3D({
           )}
         </mesh>
 
-        {/* Top Red Hypoxia Alarm Beacon (spo2 < 90% physical Bloom) */}
-        <mesh position={[0, screenH / 2 + 0.055, 0]}>
-          <cylinderGeometry args={[0.04, 0.04, 0.045, 16]} />
-          <meshStandardMaterial
-            ref={beaconRef}
-            color="#ef4444"
-            emissive="#ef4444"
-            emissiveIntensity={2.5}
-            toneMapped={false}
-          />
-        </mesh>
+        {/* Flush-mounted Top Bezel Acrylic LED Alarm Light Bar */}
+        <group position={[0, screenH / 2 + 0.026, -0.012]}>
+          <RoundedBox args={[0.16, 0.016, 0.026]} radius={0.006}>
+            <meshStandardMaterial color="#334155" roughness={0.38} metalness={0.45} />
+          </RoundedBox>
+          <RoundedBox args={[0.135, 0.013, 0.022]} radius={0.005} position={[0, 0.009, 0]}>
+            <meshStandardMaterial
+              ref={beaconRef}
+              color="#ef4444"
+              emissive="#ef4444"
+              emissiveIntensity={2.2}
+              roughness={0.2}
+              toneMapped={false}
+            />
+          </RoundedBox>
+        </group>
       </group>
 
       {monitorObj && (
@@ -2974,51 +3056,102 @@ function WallOxygenPanel3D({
       </group>
 
     <group>
-      {/* Outlet adapter (DISS quick-connect) from the headwall O2 outlet */}
-      <mesh position={[x, 1.5, z - 0.02]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <cylinderGeometry args={[0.016, 0.016, 0.06, 16]} />
-        <meshStandardMaterial {...BRUSHED_METAL} />
-      </mesh>
-
-      {/* Thorpe-tube flowmeter body */}
-      <group position={[x, 1.39, z]}>
-        <RoundedBox args={[0.085, 0.24, 0.07]} radius={0.015}>
+      {/* DISS Hex Quick-Connect & Green OXYGEN Collar into Headwall Outlet */}
+      <group position={[x, 1.46, z - 0.015]}>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.018, 0.018, 0.024, 6]} />
+          <meshStandardMaterial color="#16a34a" roughness={0.35} metalness={0.25} />
+        </mesh>
+        <mesh position={[0, 0, 0.025]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.012, 0.012, 0.042, 16]} />
           <meshStandardMaterial {...BRUSHED_METAL} />
-        </RoundedBox>
-        <mesh position={[0, 0.02, 0.037]}>
-          <cylinderGeometry args={[0.018, 0.018, 0.16, 16]} />
-          <meshStandardMaterial {...CLEAR_POLYMER} color="#e0f2fe" />
-        </mesh>
-        {/* Float ball rises when O2 is flowing */}
-        <mesh position={[0, o2Device ? 0.06 : -0.05, 0.037]}>
-          <sphereGeometry args={[0.011, 12, 12]} />
-          <meshStandardMaterial
-            color={o2Device ? '#10b981' : '#64748b'}
-            emissive={o2Device ? '#10b981' : '#000000'}
-            emissiveIntensity={o2Device ? 1.6 : 0}
-            toneMapped={false}
-          />
-        </mesh>
-        {/* Flow control knob */}
-        <mesh position={[0, -0.135, 0.01]} rotation={[0, 0, 0]}>
-          <cylinderGeometry args={[0.022, 0.022, 0.03, 16]} />
-          <meshStandardMaterial color="#16a34a" roughness={0.4} />
         </mesh>
       </group>
 
-      {/* Humidifier bottle hanging below the flowmeter */}
-      <group position={[x, 1.15, z + 0.01]}>
+      {/* Chromed Brass Amvex Thorpe-Tube Flowmeter + Graduated Clear Acrylic Scale Hood */}
+      <group position={[x, 1.42, z + 0.025]}>
+        {/* Lower chromed brass manifold block */}
+        <RoundedBox args={[0.044, 0.068, 0.046]} radius={0.008} position={[0, -0.078, 0]}>
+          <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.22} />
+        </RoundedBox>
+        {/* Green O2 identification band */}
+        <mesh position={[0, -0.048, 0]}>
+          <boxGeometry args={[0.046, 0.014, 0.048]} />
+          <meshStandardMaterial color="#15803d" roughness={0.38} />
+        </mesh>
+        {/* Clear rectangular polycarbonate outer scale hood + inner metering tube */}
+        <RoundedBox args={[0.036, 0.165, 0.036]} radius={0.006} position={[0, 0.042, 0]}>
+          <meshPhysicalMaterial color="#f0f9ff" transparent opacity={0.42} roughness={0.1} />
+        </RoundedBox>
+        <mesh position={[0, 0.042, 0]}>
+          <cylinderGeometry args={[0.009, 0.007, 0.148, 16]} />
+          <meshPhysicalMaterial color="#ffffff" transparent opacity={0.35} roughness={0.12} />
+        </mesh>
+        {/* Graduated LPM tick marks along front face */}
+        {[-0.01, 0.015, 0.04, 0.065, 0.09].map((ty, ti) => (
+          <mesh key={ti} position={[0, ty, 0.019]}>
+            <planeGeometry args={[ti % 2 === 0 ? 0.018 : 0.011, 0.0022]} />
+            <meshBasicMaterial color="#0f172a" />
+          </mesh>
+        ))}
+        {/* Stainless steel float ball (rises to active flow level when O2 is on) */}
+        <mesh
+          position={[
+            0,
+            o2Device === 'non_rebreather'
+              ? 0.095
+              : o2Device === 'simple_mask'
+                ? 0.058
+                : o2Device
+                  ? 0.022
+                  : -0.024,
+            0,
+          ]}
+        >
+          <sphereGeometry args={[0.0065, 14, 14]} />
+          <meshStandardMaterial color="#e2e8f0" metalness={0.9} roughness={0.15} />
+        </mesh>
+        {/* Side knurled chrome needle-valve flow control knob */}
+        <group position={[0.032, -0.078, 0.008]} rotation={[0, 0, Math.PI / 2]}>
+          <mesh>
+            <cylinderGeometry args={[0.007, 0.007, 0.022, 12]} />
+            <meshStandardMaterial {...BRUSHED_METAL} />
+          </mesh>
+          <mesh position={[0, -0.014, 0]}>
+            <cylinderGeometry args={[0.016, 0.016, 0.016, 20]} />
+            <meshStandardMaterial color="#16a34a" roughness={0.36} />
+          </mesh>
+        </group>
+      </group>
+
+      {/* Prefilled Sterile Water Bubble Humidifier Bottle + Green Wing-Nut Adapter Cap */}
+      <group position={[x, 1.19, z + 0.025]}>
+        {/* Wing-nut DISS top adapter + green diffuser cap */}
+        <mesh position={[0, 0.098, 0]}>
+          <cylinderGeometry args={[0.014, 0.014, 0.022, 16]} />
+          <meshStandardMaterial color="#16a34a" roughness={0.38} />
+        </mesh>
+        <mesh position={[0, 0.076, 0]}>
+          <cylinderGeometry args={[0.038, 0.04, 0.026, 22]} />
+          <meshStandardMaterial color="#15803d" roughness={0.38} />
+        </mesh>
+        {/* Clear molded humidifier bottle + sterile water column + inner down-tube */}
         <mesh>
-          <cylinderGeometry args={[0.042, 0.038, 0.14, 18]} />
-          <meshStandardMaterial {...CLEAR_POLYMER} color="#bae6fd" />
+          <cylinderGeometry args={[0.041, 0.037, 0.135, 22]} />
+          <meshPhysicalMaterial color="#f0f9ff" transparent opacity={0.44} roughness={0.12} />
         </mesh>
-        <mesh position={[0, -0.015, 0]}>
-          <cylinderGeometry args={[0.035, 0.032, 0.09, 16]} />
-          <meshStandardMaterial {...CLEAR_POLYMER} color="#38bdf8" />
+        <mesh position={[0, -0.018, 0]}>
+          <cylinderGeometry args={[0.037, 0.034, 0.086, 20]} />
+          <meshPhysicalMaterial color="#bae6fd" transparent opacity={0.48} roughness={0.1} />
         </mesh>
-        <mesh position={[0, 0.08, 0]}>
-          <cylinderGeometry args={[0.03, 0.03, 0.025, 18]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.4} />
+        <mesh position={[0, 0.005, 0]}>
+          <cylinderGeometry args={[0.003, 0.003, 0.115, 10]} />
+          <meshStandardMaterial color="#e2e8f0" roughness={0.3} />
+        </mesh>
+        {/* Angled front oxygen tubing barb */}
+        <mesh position={[0, 0.074, 0.032]} rotation={[0.65, 0, 0]}>
+          <cylinderGeometry args={[0.0055, 0.007, 0.026, 12]} />
+          <meshStandardMaterial color="#f8fafc" roughness={0.35} />
         </mesh>
       </group>
 
@@ -3035,7 +3168,80 @@ function WallOxygenPanel3D({
     </>
   );
 }
-/* ---------- 5. IV Pole (GLB) + Morphine PCA Pump + Refractive Bag & Drip Chamber ---------- */
+/* ---------- 5. IV Pole (GLB with Native Scanned IV Bag) + Pole-Clamped Smart PCA Pump ---------- */
+function makePcaPumpScreenTexture(paused) {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = 384;
+  c.height = 480;
+  const g = c.getContext('2d');
+
+  // Deep clinical backlit LCD bezel background
+  g.fillStyle = '#09131c';
+  g.fillRect(0, 0, c.width, c.height);
+
+  // Top channel header bar
+  g.fillStyle = paused ? '#065f46' : '#92400e';
+  g.fillRect(0, 0, c.width, 64);
+  g.fillStyle = '#f8fafc';
+  g.font = '800 22px "Inter", "Segoe UI", Arial, sans-serif';
+  g.fillText('CH A · PCA MORPHINE', 18, 40);
+
+  // Concentration sub-banner
+  g.fillStyle = '#112233';
+  g.fillRect(0, 64, c.width, 42);
+  g.fillStyle = '#93c5fd';
+  g.font = '700 18px "JetBrains Mono", Consolas, monospace';
+  g.fillText('CONC: 1.0 mg/mL   SYR: 30 mL', 18, 91);
+
+  // Main infusion rate readout card
+  g.fillStyle = '#0d1d2b';
+  g.strokeStyle = paused ? '#10b981' : '#f59e0b';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.roundRect(18, 124, c.width - 36, 152, 14);
+  g.fill();
+  g.stroke();
+
+  g.fillStyle = paused ? '#6ee7b7' : '#fcd34d';
+  g.font = '800 21px "Inter", "Segoe UI", Arial, sans-serif';
+  g.fillText(paused ? 'INFUSION PAUSED · HOLD' : 'BASAL INFUSING', 34, 160);
+
+  g.fillStyle = '#ffffff';
+  g.font = '800 68px "JetBrains Mono", Consolas, monospace';
+  g.fillText(paused ? '0.0' : '2.0', 34, 232);
+  g.fillStyle = '#94a3b8';
+  g.font = '700 24px "Inter", "Segoe UI", Arial, sans-serif';
+  g.fillText('mg/hr', 196, 230);
+
+  // Demand dose & lockout summary
+  g.fillStyle = '#cbd5e1';
+  g.font = '600 19px "JetBrains Mono", Consolas, monospace';
+  g.fillText('DEMAND: 1.0 mg   LOCKOUT: 15 min', 22, 316);
+  g.fillText('VTBI:   24.5 mL  4-HR LIM: 20 mg', 22, 350);
+
+  // Bottom softkey labels
+  const keys = ['BOLUS', paused ? 'RESUME' : 'PAUSE', 'OPTIONS', 'SILENCE'];
+  keys.forEach((lbl, idx) => {
+    const kx = 12 + idx * 91;
+    g.fillStyle = idx === 1 ? (paused ? '#065f46' : '#78350f') : '#1e293b';
+    g.beginPath();
+    g.roundRect(kx, 418, 84, 46, 8);
+    g.fill();
+    g.fillStyle = '#e2e8f0';
+    g.font = '800 14px "Inter", Arial, sans-serif';
+    g.textAlign = 'center';
+    g.fillText(lbl, kx + 42, 446);
+  });
+  g.textAlign = 'left';
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function IvPumpPole3D({
   pcaPaused,
   ivPumpObj,
@@ -3044,35 +3250,52 @@ function IvPumpPole3D({
   onSelectObject,
 }) {
   const { scene } = useGLTF('/models/iv_pole.glb');
-  const dripDropRef = useRef();
+  const pumpScreenTex = useMemo(() => makePcaPumpScreenTexture(pcaPaused), [pcaPaused]);
+  useEffect(() => () => pumpScreenTex?.dispose(), [pumpScreenTex]);
 
-  const fittedPole = useMemo(
-    () =>
-      fitModel(scene, {
-        axis: 'height',
-        target: 2.4,
-        preprocess: (o) =>
-          o.traverse((m) => {
-            if (m.isMesh) m.geometry = keepHalfGeometry(m.geometry, true);
-          }),
-        onMesh: (m) => {
-          m.castShadow = false;
-          m.raycast = () => {};
-          if (m.material) {
-            m.material.metalness = 0.8;
-            m.material.roughness = 0.25;
-          }
-        },
-      }).object,
-    [scene]
-  );
+  // Fit `iv_pole.glb` (which ALREADY includes a photorealistic 3D scanned IV bag + clear tubing on its hook!)
+  // and measure the exact vertical pole shaft (shaftX, shaftZ) so the Smart PCA Pump clamps flush onto the pole!
+  const { fittedPole, shaftX, shaftZ } = useMemo(() => {
+    const fitted = fitModel(scene, {
+      axis: 'height',
+      target: 2.4,
+      preprocess: (o) =>
+        o.traverse((m) => {
+          if (m.isMesh) m.geometry = keepHalfGeometry(m.geometry, true);
+        }),
+      onMesh: (m) => {
+        m.castShadow = false;
+        m.raycast = () => {};
+        if (m.material) {
+          m.material.metalness = 0.22;
+          m.material.roughness = 0.36;
+        }
+      },
+    }).object;
 
-  useFrame((state) => {
-    if (dripDropRef.current && !pcaPaused) {
-      const t = (state.clock.elapsedTime * 1.4) % 1;
-      dripDropRef.current.position.y = 1.78 - t * 0.065;
-    }
-  });
+    fitted.updateMatrixWorld(true);
+    let sx = 0;
+    let sz = 0;
+    let count = 0;
+    const v = new THREE.Vector3();
+    fitted.traverse((m) => {
+      if (!m.isMesh || !m.geometry?.attributes?.position) return;
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        if (v.y >= 0.75 && v.y <= 1.12) {
+          sx += v.x;
+          sz += v.z;
+          count += 1;
+        }
+      }
+    });
+    return {
+      fittedPole: fitted,
+      shaftX: count > 0 ? sx / count : 0,
+      shaftZ: count > 0 ? sz / count : 0,
+    };
+  }, [scene]);
 
   return (
     <group
@@ -3081,41 +3304,120 @@ function IvPumpPole3D({
     >
       <primitive object={fittedPole} />
 
-      {/* Mounted Morphine PCA Infusion Pump Unit on Pole */}
-      <group position={[0.16, 1.32, 0]} rotation={[0, Math.PI, 0]}>
-        <RoundedBox args={[0.22, 0.3, 0.16]} radius={0.025}>
-          <meshStandardMaterial color="#1e293b" metalness={0.5} roughness={0.3} />
-        </RoundedBox>
-        <mesh position={[0, 0.02, 0.082]}>
-          <planeGeometry args={[0.15, 0.17]} />
-          <meshStandardMaterial
-            color={pcaPaused ? '#10b981' : '#f59e0b'}
-            emissive={pcaPaused ? '#10b981' : '#f59e0b'}
-            emissiveIntensity={1.8}
-            toneMapped={false}
-          />
+      {/* Pole-Clamped BD Alaris / Hospira Smart Morphine PCA Syringe Infusion Pump
+          (Replaces both the floating generic capsule IV bag AND the plain yellow-square box!) */}
+      <group position={[shaftX, 1.26, shaftZ]} rotation={[0, Math.PI * 0.72, 0]}>
+        {/* Machined aluminum C-clamp + rubberized handwheel gripping the vertical IV pole shaft */}
+        <mesh rotation={[0, 0, 0]}>
+          <cylinderGeometry args={[0.024, 0.024, 0.075, 20]} />
+          <meshStandardMaterial color="#64748b" metalness={0.82} roughness={0.26} />
         </mesh>
+        <mesh position={[0, 0, -0.036]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.009, 0.009, 0.045, 12]} />
+          <meshStandardMaterial color="#94a3b8" metalness={0.85} roughness={0.22} />
+        </mesh>
+        <mesh position={[0, 0, -0.06]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.02, 0.018, 0.016, 16]} />
+          <meshStandardMaterial color="#1e293b" roughness={0.65} />
+        </mesh>
+        {/* Horizontal mounting bracket arm connecting pole clamp to rear of pump chassis */}
+        <RoundedBox args={[0.045, 0.055, 0.075]} radius={0.008} position={[0, 0, 0.045]}>
+          <meshStandardMaterial color="#94a3b8" metalness={0.75} roughness={0.28} />
+        </RoundedBox>
+
+        {/* Main Smart PCA Pump Assembly */}
+        <group position={[0, 0, 0.135]}>
+          {/* Medical polycarbonate outer shell */}
+          <RoundedBox args={[0.23, 0.28, 0.125]} radius={0.02}>
+            <meshStandardMaterial color="#dbe2ea" roughness={0.36} metalness={0.08} />
+          </RoundedBox>
+
+          {/* Molded top carry handle */}
+          <RoundedBox args={[0.13, 0.022, 0.032]} radius={0.008} position={[0, 0.152, -0.01]}>
+            <meshStandardMaterial color="#64748b" roughness={0.42} metalness={0.25} />
+          </RoundedBox>
+          {[-0.052, 0.052].map((hx) => (
+            <mesh key={hx} position={[hx, 0.14, -0.01]}>
+              <cylinderGeometry args={[0.009, 0.009, 0.024, 12]} />
+              <meshStandardMaterial color="#64748b" roughness={0.42} metalness={0.25} />
+            </mesh>
+          ))}
+
+          {/* Top status beacon strip (amber pulse = running basal, steady emerald = paused) */}
+          <RoundedBox args={[0.14, 0.014, 0.022]} radius={0.006} position={[-0.025, 0.132, 0.054]}>
+            <meshStandardMaterial
+              color={pcaPaused ? '#10b981' : '#f59e0b'}
+              emissive={pcaPaused ? '#10b981' : '#f59e0b'}
+              emissiveIntensity={1.35}
+              roughness={0.22}
+              toneMapped={false}
+            />
+          </RoundedBox>
+
+          {/* Left Control Module: Dark slate bezel + High-DPI Smart-Pump LCD Screen + Tactile Keypad */}
+          <RoundedBox args={[0.135, 0.235, 0.016]} radius={0.01} position={[-0.036, -0.005, 0.058]}>
+            <meshStandardMaterial color="#1e293b" roughness={0.38} metalness={0.2} />
+          </RoundedBox>
+          <mesh position={[-0.036, 0.022, 0.067]}>
+            <planeGeometry args={[0.114, 0.142]} />
+            <meshBasicMaterial map={pumpScreenTex} toneMapped={false} />
+          </mesh>
+          {/* Tactile membrane keypad buttons below LCD */}
+          {[-0.072, -0.048, -0.024, 0.0].map((bx, bi) =>
+            [-0.072, -0.094].map((by, ri) => (
+              <RoundedBox
+                key={`${bi}_${ri}`}
+                args={[0.018, 0.013, 0.006]}
+                radius={0.002}
+                position={[bx, by, 0.066]}
+              >
+                <meshStandardMaterial
+                  color={ri === 1 && bi === 0 ? '#16a34a' : ri === 1 && bi === 3 ? '#dc2626' : '#475569'}
+                  roughness={0.45}
+                />
+              </RoundedBox>
+            ))
+          )}
+
+          {/* Right Locked Syringe PCA Chamber: Clear tamper-proof security door + 30 mL Morphine Syringe */}
+          <RoundedBox args={[0.068, 0.235, 0.026]} radius={0.01} position={[0.072, -0.005, 0.058]}>
+            <meshPhysicalMaterial
+              color="#e0f2fe"
+              transparent
+              opacity={0.38}
+              roughness={0.12}
+              metalness={0.05}
+            />
+          </RoundedBox>
+          {/* Graduated 30 mL Morphine syringe barrel + plunger rod inside locked door */}
+          <mesh position={[0.072, 0.008, 0.052]}>
+            <cylinderGeometry args={[0.015, 0.015, 0.135, 18]} />
+            <meshPhysicalMaterial color="#f8fafc" transparent opacity={0.72} roughness={0.18} />
+          </mesh>
+          <mesh position={[0.072, 0.032, 0.052]}>
+            <cylinderGeometry args={[0.0135, 0.0135, 0.014, 16]} />
+            <meshStandardMaterial color="#1e293b" roughness={0.6} />
+          </mesh>
+          <mesh position={[0.072, 0.068, 0.052]}>
+            <cylinderGeometry args={[0.005, 0.005, 0.065, 12]} />
+            <meshStandardMaterial color="#0284c7" roughness={0.35} />
+          </mesh>
+          {/* Keyed security lock cylinder on side of PCA door */}
+          <mesh position={[0.112, 0.02, 0.045]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.008, 0.008, 0.012, 14]} />
+            <meshStandardMaterial color="#cbd5e1" metalness={0.88} roughness={0.22} />
+          </mesh>
+          {/* Bottom Luer-lock infusion tubing outlet */}
+          <mesh position={[0.072, -0.148, 0.048]}>
+            <cylinderGeometry args={[0.007, 0.005, 0.024, 12]} />
+            <meshStandardMaterial color="#38bdf8" roughness={0.35} />
+          </mesh>
+        </group>
       </group>
-
-      {/* IV Morphine PCA Infusion Bag */}
-      <mesh position={[0.26, 1.98, 0.02]}>
-        <capsuleGeometry args={[0.065, 0.15, 8, 16]} />
-        <meshStandardMaterial {...CLEAR_POLYMER} color="#e0f2fe" />
-      </mesh>
-
-      {/* IV Drip Chamber + Falling Droplet */}
-      <mesh position={[0.26, 1.75, 0.02]}>
-        <cylinderGeometry args={[0.018, 0.015, 0.09, 14]} />
-        <meshStandardMaterial {...CLEAR_POLYMER} color="#bae6fd" />
-      </mesh>
-      <mesh ref={dripDropRef} position={[0.26, 1.76, 0.02]}>
-        <sphereGeometry args={[0.007, 8, 8]} />
-        <meshStandardMaterial {...CLEAR_POLYMER} color="#38bdf8" />
-      </mesh>
 
       {ivPumpObj && (
         <InteractiveHotspot
-          position={[0.1, 2.46, 0]}
+          position={[shaftX, 2.46, shaftZ]}
           objConfig={ivPumpObj}
           isCompleted={isCompleted}
           isSelected={isSelected}
@@ -3204,48 +3506,119 @@ function EhrWorkstationCart3D({
   onSelectObject,
 }) {
   const ehrScreenTexture = useMemo(() => makeEhrScreenTexture(), []);
+  const starAngles = [0, 1, 2, 3, 4].map((i) => (i / 5) * Math.PI * 2 + 0.3);
+
   return (
     <group
       position={[1.85, 0, 0.55]}
       rotation={[0, -0.55, 0]}
     >
+      {/* 5-Star Die-Cast Medical WOW Base + 5 Dual-Wheel Swivel Casters */}
+      <mesh position={[0, 0.095, 0]}>
+        <cylinderGeometry args={[0.065, 0.078, 0.055, 20]} />
+        <meshStandardMaterial {...BRUSHED_METAL} color="#64748b" />
+      </mesh>
+      {starAngles.map((ang, idx) => {
+        const lx = Math.sin(ang) * 0.25;
+        const lz = Math.cos(ang) * 0.25;
+        return (
+          <group key={idx}>
+            <group position={[lx * 0.52, 0.075, lz * 0.52]} rotation={[0, ang, 0]}>
+              <RoundedBox args={[0.044, 0.032, 0.27]} radius={0.01} rotation={[-0.12, 0, 0]} castShadow>
+                <meshStandardMaterial {...BRUSHED_METAL} color="#94a3b8" />
+              </RoundedBox>
+            </group>
+            {/* Swivel caster fork + twin polyurethane hospital wheels */}
+            <group position={[lx, 0.032, lz]} rotation={[0, ang * 1.3, 0]}>
+              <mesh position={[0, 0.022, 0]}>
+                <cylinderGeometry args={[0.012, 0.012, 0.024, 12]} />
+                <meshStandardMaterial color="#475569" metalness={0.7} roughness={0.3} />
+              </mesh>
+              {[-0.012, 0.012].map((wx) => (
+                <mesh key={wx} position={[wx, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry args={[0.031, 0.031, 0.01, 18]} />
+                  <meshStandardMaterial color="#1e293b" roughness={0.65} />
+                </mesh>
+              ))}
+              <mesh position={[0, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.016, 0.016, 0.036, 14]} />
+                <meshStandardMaterial color="#cbd5e1" metalness={0.6} roughness={0.35} />
+              </mesh>
+            </group>
+          </group>
+        );
+      })}
+
+      {/* Lower LiFePO4 Medical Battery Pack Housing + Telescoping Extruded Column */}
+      <RoundedBox args={[0.20, 0.16, 0.24]} radius={0.022} position={[0, 0.20, -0.02]} castShadow>
+        <meshStandardMaterial color="#334155" roughness={0.42} metalness={0.2} />
+      </RoundedBox>
+      <mesh position={[0, 0.25, 0.102]}>
+        <planeGeometry args={[0.06, 0.012]} />
+        <meshStandardMaterial color="#10b981" emissive="#10b981" emissiveIntensity={1.1} toneMapped={false} />
+      </mesh>
+      <RoundedBox args={[0.075, 0.80, 0.095]} radius={0.018} position={[0, 0.66, -0.03]} castShadow>
+        <meshStandardMaterial color="#cbd5e1" metalness={0.55} roughness={0.32} />
+      </RoundedBox>
+
+      {/* Molded Antimicrobial Worksurface + Curved Ergonomic Front Push-Handle */}
       <RoundedBox
-        args={[0.44, 0.06, 0.44]}
-        position={[0, 0.04, 0]}
-        radius={0.02}
+        args={[0.52, 0.034, 0.40]}
+        position={[0, 1.06, 0.02]}
+        radius={0.016}
+        castShadow
         receiveShadow
       >
-        <meshStandardMaterial {...BRUSHED_METAL} color="#64748b" />
+        <meshStandardMaterial color="#f8fafc" roughness={0.32} metalness={0.05} />
       </RoundedBox>
-      <mesh position={[0, 0.56, 0]} castShadow>
-        <cylinderGeometry args={[0.032, 0.04, 1.04, 20]} />
-        <meshStandardMaterial {...BRUSHED_METAL} />
+      <mesh position={[0, 1.055, 0.245]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.16, 0.012, 10, 28, Math.PI]} />
+        <meshStandardMaterial color="#64748b" metalness={0.55} roughness={0.35} />
       </mesh>
-      <RoundedBox
-        args={[0.5, 0.035, 0.38]}
-        position={[0, 1.08, 0]}
-        radius={0.015}
-        castShadow
-      >
-        <meshStandardMaterial color="#f1f5f9" roughness={0.3} metalness={0.1} />
+
+      {/* Slide-Out Washable Clinical Keyboard Tray + Keyboard & Mouse */}
+      <RoundedBox args={[0.44, 0.016, 0.20]} radius={0.006} position={[0, 0.985, 0.16]}>
+        <meshStandardMaterial color="#e2e8f0" roughness={0.38} />
+      </RoundedBox>
+      <RoundedBox args={[0.29, 0.012, 0.115]} radius={0.005} position={[-0.045, 0.998, 0.165]}>
+        <meshStandardMaterial color="#334155" roughness={0.52} />
+      </RoundedBox>
+      <RoundedBox args={[0.052, 0.018, 0.082]} radius={0.009} position={[0.155, 1.00, 0.165]}>
+        <meshStandardMaterial color="#475569" roughness={0.42} />
+      </RoundedBox>
+
+      {/* Side Holstered Wireless Barcode Scanner */}
+      <group position={[0.275, 1.04, 0.02]}>
+        <mesh>
+          <cylinderGeometry args={[0.026, 0.022, 0.075, 14]} />
+          <meshStandardMaterial color="#475569" roughness={0.45} />
+        </mesh>
+        <RoundedBox args={[0.034, 0.095, 0.055]} radius={0.01} position={[0, 0.062, 0.008]} rotation={[0.35, 0, 0]}>
+          <meshStandardMaterial color="#1e293b" roughness={0.38} />
+        </RoundedBox>
+      </group>
+
+      {/* Rear Articulated VESA Monitor Riser + Slim Clinical All-in-One Display */}
+      <RoundedBox args={[0.048, 0.26, 0.048]} radius={0.01} position={[0, 1.19, -0.09]} castShadow>
+        <meshStandardMaterial {...BRUSHED_METAL} />
       </RoundedBox>
       <RoundedBox
-        args={[0.42, 0.3, 0.03]}
-        position={[0, 1.3, -0.04]}
-        rotation={[-0.18, 0, 0]}
-        radius={0.018}
+        args={[0.45, 0.31, 0.026]}
+        position={[0, 1.32, -0.04]}
+        rotation={[-0.16, 0, 0]}
+        radius={0.014}
         castShadow
       >
-        <meshStandardMaterial color="#0f172a" roughness={0.25} metalness={0.5} />
+        <meshStandardMaterial color="#0f172a" roughness={0.28} metalness={0.42} />
       </RoundedBox>
-      <mesh position={[0, 1.3, -0.023]} rotation={[-0.18, 0, 0]}>
-        <planeGeometry args={[0.37, 0.25]} />
+      <mesh position={[0, 1.32, -0.025]} rotation={[-0.16, 0, 0]}>
+        <planeGeometry args={[0.41, 0.27]} />
         <meshBasicMaterial map={ehrScreenTexture} toneMapped={false} />
       </mesh>
 
       {ehrObj && (
         <InteractiveHotspot
-          position={[0.22, 1.15, 0.22]}
+          position={[0.22, 1.18, 0.22]}
           objConfig={ehrObj}
           isCompleted={isCompleted}
           isSelected={isSelected}
@@ -3310,17 +3683,17 @@ function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle 
   const [mx, my, mz] = maskPointForAngle(bedAngle);
   return (
     <group>
-      {/* Slim translucent medical oxygen tubing curving smoothly from humidifier bottle under chin into mask */}
+      {/* Slim translucent medical oxygen tubing curving smoothly from humidifier barb under chin into mask */}
       {o2Device && (
       <SplineTube
-        color="#6ee7b7"
+        color="#a7f3d0"
         emissive="#10b981"
-        emissiveIntensity={0.85}
-        opacity={0.78}
-        radius={0.0065}
+        emissiveIntensity={0.18}
+        opacity={0.72}
+        radius={0.0048}
         points={[
-          [-0.88, 1.08, -1.83],
-          [-0.78, 0.98, -1.52],
+          [-0.88, 1.26, -1.788],
+          [-0.78, 1.04, -1.52],
           [-0.52, 1.08, -1.18],
           [-0.24, Math.max(1.16, my - 0.18), mz - 0.04],
           [mx - 0.04, my - 0.055, mz + 0.045],
@@ -3357,17 +3730,17 @@ function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle 
       </>
       )}
 
-      {/* IV Morphine PCA Line: IV Pole Pump / Drip Chamber -> Patient Right Hand Cannula */}
+      {/* IV Morphine PCA Line: Smart PCA Syringe Pump Outlet -> Patient Right Hand IV Hub */}
       <SplineTube
-        color={pcaPaused ? '#94a3b8' : '#e9e2c6'}
-        radius={0.007}
-        opacity={0.6}
+        color={pcaPaused ? '#cbd5e1' : '#e0f2fe'}
+        radius={0.0045}
+        opacity={0.72}
         points={[
-          [-0.85, 1.79, -0.12],
-          [-0.76, 1.42, -0.08],
-          [-0.6, 1.18, -0.10],
-          [-0.44, 1.16, -0.07],
-          [-0.295, 1.192, -0.05],
+          [-1.02, 1.11, -0.06],
+          [-0.86, 0.99, -0.05],
+          [-0.64, 1.13, -0.07],
+          [-0.45, 1.17, -0.06],
+          [-0.295, 1.194, -0.03],
         ]}
       />
     </group>

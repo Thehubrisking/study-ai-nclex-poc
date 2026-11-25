@@ -473,15 +473,41 @@ function HeadwallConsole({ theme, night }) {
         />
       </mesh>
 
-      {/* WHITE WIRE-MESH GLOVE / SUPPLY BASKET mounted above the lower rail (from reference photo) */}
-      <group position={[-0.72, 1.71, z + 0.08]}>
-        <RoundedBox args={[0.48, 0.11, 0.12]} radius={0.012}>
-          <meshStandardMaterial color="#f8fafc" roughness={0.35} wireframe />
+      {/* HEADWALL VACUUM SUCTION CANISTER & REGULATOR MODULE (replaces low-poly wireframe box) */}
+      <group position={[-0.66, 1.66, z + 0.085]}>
+        {/* Chrome wall mounting bracket + vacuum regulator body */}
+        <RoundedBox args={[0.075, 0.095, 0.048]} radius={0.008} position={[-0.12, 0.02, -0.02]}>
+          <meshStandardMaterial color="#e2e8f0" roughness={0.35} metalness={0.45} />
         </RoundedBox>
-        <Slab args={[0.48, 0.012, 0.12]} position={[0, -0.052, 0]} color="#f1f5f9" roughness={0.35} cast={false} />
-        {/* Vertical support brackets down to the lower rail */}
-        <Slab args={[0.016, 0.14, 0.016]} position={[-0.16, -0.09, -0.04]} color="#e2e8f0" roughness={0.4} cast={false} />
-        <Slab args={[0.016, 0.14, 0.016]} position={[0.16, -0.09, -0.04]} color="#e2e8f0" roughness={0.4} cast={false} />
+        <mesh position={[-0.12, 0.035, 0.012]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.024, 0.024, 0.016, 20]} />
+          <meshStandardMaterial color="#f8fafc" roughness={0.3} />
+        </mesh>
+        {/* Clear graduated 1200 mL suction canister in stainless ring holder */}
+        <mesh position={[0.04, -0.01, 0.01]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.058, 0.005, 10, 24]} />
+          <meshStandardMaterial {...ALUMINUM} />
+        </mesh>
+        <mesh position={[0.04, -0.01, 0.01]}>
+          <cylinderGeometry args={[0.055, 0.048, 0.16, 22]} />
+          <meshPhysicalMaterial
+            color="#f1f5f9"
+            transparent
+            opacity={0.46}
+            roughness={0.14}
+          />
+        </mesh>
+        {/* Burgundy clinical suction lid + vacuum tubing ports */}
+        <mesh position={[0.04, 0.074, 0.01]}>
+          <cylinderGeometry args={[0.058, 0.056, 0.022, 22]} />
+          <meshStandardMaterial color="#881337" roughness={0.42} />
+        </mesh>
+        {[-0.02, 0.022].map((px) => (
+          <mesh key={px} position={[0.04 + px, 0.094, 0.01]}>
+            <cylinderGeometry args={[0.006, 0.006, 0.022, 12]} />
+            <meshStandardMaterial color="#f8fafc" roughness={0.4} />
+          </mesh>
+        ))}
       </group>
 
       {/* Medical gas outlets & sockets along the lower rail */}
@@ -744,36 +770,65 @@ function WindowSideLounge({ theme, night }) {
         </group>
       </group>
 
-      {/* 4. CORNER SIDE TABLE + VASE OF FLOWERS (between sofa and recliner, as in reference photo) */}
+      {/* 4. TAPERED OAK SIDE TABLE + HOSPITAL WATER PITCHER, TUMBLER & TISSUE BOX */}
       <group position={[ROOM.minX + 0.34, 0, 0.42]}>
-        <RoundedBox args={[0.38, 0.38, 0.38]} radius={0.015} position={[0, 0.19, 0]} castShadow>
-          <meshStandardMaterial color={theme.oak} roughness={0.5} />
-        </RoundedBox>
-        {/* Clear glass vase */}
-        <mesh position={[0, 0.47, 0]}>
-          <cylinderGeometry args={[0.055, 0.042, 0.18, 16]} />
-          <meshStandardMaterial
-            color="#d1fae5"
-            transparent
-            opacity={0.52}
-            roughness={0.12}
-            metalness={0.05}
-          />
-        </mesh>
-        {/* Bouquet of red/pink blossoms + green foliage */}
+        {/* Four tapered oak legs + rounded tabletop */}
         {[
-          [0, 0.61, 0, '#be123c', 0.045],
-          [0.04, 0.59, 0.03, '#e11d48', 0.038],
-          [-0.04, 0.6, -0.02, '#9f1239', 0.04],
-          [0.02, 0.63, -0.035, '#f43f5e', 0.035],
-          [-0.03, 0.58, 0.04, '#15803d', 0.042],
-          [0.04, 0.57, -0.03, '#166534', 0.04],
-        ].map(([bx, by, bz, col, r], i) => (
-          <mesh key={i} position={[bx, by, bz]}>
-            <sphereGeometry args={[r, 10, 8]} />
-            <meshStandardMaterial color={col} roughness={0.75} />
+          [-0.15, -0.15],
+          [0.15, -0.15],
+          [-0.15, 0.15],
+          [0.15, 0.15],
+        ].map(([lx, lz], idx) => (
+          <mesh key={idx} position={[lx, 0.22, lz]} castShadow>
+            <cylinderGeometry args={[0.016, 0.011, 0.44, 14]} />
+            <meshStandardMaterial color={theme.oak} roughness={0.46} />
           </mesh>
         ))}
+        <RoundedBox args={[0.42, 0.032, 0.42]} radius={0.014} position={[0, 0.45, 0]} castShadow receiveShadow>
+          <meshStandardMaterial color={theme.oak} roughness={0.44} />
+        </RoundedBox>
+        <RoundedBox args={[0.34, 0.018, 0.34]} radius={0.008} position={[0, 0.14, 0]}>
+          <meshStandardMaterial color={theme.oak} roughness={0.48} />
+        </RoundedBox>
+
+        {/* Hospital insulated patient water carafe + white flip lid + handle */}
+        <group position={[-0.07, 0.466, -0.04]}>
+          <mesh position={[0, 0.085, 0]} castShadow>
+            <cylinderGeometry args={[0.052, 0.044, 0.17, 22]} />
+            <meshStandardMaterial color="#0e7490" roughness={0.34} />
+          </mesh>
+          <mesh position={[0, 0.176, 0]}>
+            <cylinderGeometry args={[0.055, 0.053, 0.018, 22]} />
+            <meshStandardMaterial color="#f8fafc" roughness={0.38} />
+          </mesh>
+          <mesh position={[-0.055, 0.09, 0]} rotation={[0, 0, Math.PI / 2]}>
+            <torusGeometry args={[0.042, 0.006, 8, 18, Math.PI]} />
+            <meshStandardMaterial color="#0e7490" roughness={0.36} />
+          </mesh>
+        </group>
+
+        {/* Clear bedside drinking tumbler + bent straw */}
+        <group position={[0.05, 0.466, 0.05]}>
+          <mesh position={[0, 0.05, 0]}>
+            <cylinderGeometry args={[0.03, 0.024, 0.10, 18]} />
+            <meshPhysicalMaterial color="#e0f2fe" transparent opacity={0.55} roughness={0.14} />
+          </mesh>
+          <mesh position={[0.006, 0.095, 0]} rotation={[0, 0, -0.18]}>
+            <cylinderGeometry args={[0.0028, 0.0028, 0.085, 10]} />
+            <meshStandardMaterial color="#f8fafc" roughness={0.4} />
+          </mesh>
+        </group>
+
+        {/* Bedside facial tissue box + soft tissue sheet */}
+        <group position={[0.06, 0.466, -0.08]} rotation={[0, -0.22, 0]}>
+          <RoundedBox args={[0.14, 0.065, 0.10]} radius={0.008} position={[0, 0.0325, 0]} castShadow>
+            <meshStandardMaterial color="#e2e8f0" roughness={0.55} />
+          </RoundedBox>
+          <mesh position={[0, 0.075, 0]} rotation={[0.15, 0.2, -0.12]}>
+            <planeGeometry args={[0.065, 0.048]} />
+            <meshStandardMaterial color="#ffffff" roughness={0.85} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
       </group>
 
       {/* 5. CURVED HALF-CYLINDER FROSTED WALL SCONCE on the left wall (prominent in reference photo) */}
@@ -949,36 +1004,126 @@ function WallClock() {
   );
 }
 
+function makeCareWhiteboardTexture() {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 680;
+  const g = c.getContext('2d');
+
+  // Glossy porcelain-enamel hospital communication board surface
+  g.fillStyle = '#fafbfc';
+  g.fillRect(0, 0, c.width, c.height);
+
+  // Top institutional navy header banner
+  g.fillStyle = '#1e3a5f';
+  g.fillRect(0, 0, c.width, 84);
+  g.fillStyle = '#ffffff';
+  g.font = '800 30px "Inter", "Segoe UI", Arial, sans-serif';
+  g.fillText('PATIENT CARE & COMMUNICATION BOARD', 34, 52);
+  g.fillStyle = '#93c5fd';
+  g.font = '700 22px "Inter", "Segoe UI", Arial, sans-serif';
+  g.fillText('RM: PACU-04', 842, 51);
+
+  const drawBox = (x, y, w, h, title, handwritten, ink = '#1e293b') => {
+    g.strokeStyle = '#cbd5e1';
+    g.lineWidth = 2.5;
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    g.roundRect(x, y, w, h, 10);
+    g.fill();
+    g.stroke();
+
+    g.fillStyle = '#eff6ff';
+    g.beginPath();
+    g.roundRect(x + 2, y + 2, w - 4, 34, [8, 8, 0, 0]);
+    g.fill();
+
+    g.fillStyle = '#1e3a5f';
+    g.font = '800 16px "Inter", "Segoe UI", Arial, sans-serif';
+    g.fillText(title, x + 14, y + 25);
+
+    g.fillStyle = ink;
+    g.font = '600 23px "Segoe Print", "Bradley Hand", "Inter", sans-serif';
+    const lines = Array.isArray(handwritten) ? handwritten : [handwritten];
+    lines.forEach((ln, idx) => {
+      g.fillText(ln, x + 16, y + 72 + idx * 34);
+    });
+  };
+
+  drawBox(28, 104, 220, 110, 'DATE', 'Nov 25', '#0f172a');
+  drawBox(264, 104, 356, 110, 'REGISTERED NURSE (RN)', 'Daniel, RN, BSN', '#1d4ed8');
+  drawBox(636, 104, 360, 110, 'ATTENDING / SURGERY', 'Gen. Surgery Team', '#0f172a');
+
+  drawBox(
+    28,
+    232,
+    472,
+    204,
+    "TODAY'S CARE GOALS",
+    ['• Post-op pain & respiratory comfort', '• Hourly I&O / surgical site checks', '• Call bell within reach'],
+    '#1e293b'
+  );
+  drawBox(
+    516,
+    232,
+    480,
+    204,
+    'DIET / ACTIVITY / SAFETY',
+    ['• Diet: NPO (post-op recovery)', '• Activity: Bedrest w/ assistance', '• Allergy band verified'],
+    '#0f4c5c'
+  );
+
+  drawBox(
+    28,
+    454,
+    968,
+    194,
+    'QUESTIONS FOR MY CARE TEAM & DISCHARGE PLANNING',
+    ['• Family updated in waiting lounge   • Call x4410 for Charge RN'],
+    '#334155'
+  );
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function CareWhiteboard() {
-  const strokes = [
-    [-0.32, 0.18, 0.28, '#1d4ed8'],
-    [-0.34, 0.11, 0.22, '#0f172a'],
-    [-0.32, 0.04, 0.26, '#0f172a'],
-    [-0.34, -0.04, 0.18, '#15803d'],
-    [0.1, 0.18, 0.26, '#b91c1c'],
-    [0.08, 0.11, 0.2, '#0f172a'],
-    [0.1, 0.04, 0.28, '#0f172a'],
-  ];
+  const boardTex = useMemo(() => makeCareWhiteboardTexture(), []);
   return (
     <group position={[-2.35, 1.65, ROOM.minZ + 0.015]}>
+      {/* Anodized aluminum perimeter frame + dark corner caps */}
       <RoundedBox args={[0.96, 0.66, 0.022]} radius={0.01}>
         <meshStandardMaterial {...ALUMINUM} />
       </RoundedBox>
       <mesh position={[0, 0, 0.013]}>
-        <planeGeometry args={[0.9, 0.6]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.18} />
+        <planeGeometry args={[0.91, 0.61]} />
+        <meshStandardMaterial map={boardTex} roughness={0.16} metalness={0.02} />
       </mesh>
-      <mesh position={[0, 0.25, 0.014]}>
-        <planeGeometry args={[0.9, 0.07]} />
-        <meshStandardMaterial color="#2c5282" roughness={0.5} />
-      </mesh>
-      {strokes.map(([x, y, w, c], i) => (
-        <mesh key={i} position={[x + w / 2, y, 0.015]}>
-          <planeGeometry args={[w, 0.01]} />
-          <meshStandardMaterial color={c} roughness={0.6} />
-        </mesh>
+      {/* Bottom aluminum marker tray + 3 dry-erase markers + felt magnetic eraser */}
+      <Slab args={[0.56, 0.02, 0.048]} position={[0.12, -0.335, 0.028]} color="#cbd5e1" roughness={0.36} metalness={0.55} />
+      {[
+        [-0.04, '#1d4ed8'],
+        [0.08, '#0f172a'],
+        [0.20, '#dc2626'],
+      ].map(([mx, capCol], idx) => (
+        <group key={idx} position={[mx, -0.318, 0.032]} rotation={[0, 0, Math.PI / 2]}>
+          <mesh>
+            <cylinderGeometry args={[0.0065, 0.0065, 0.085, 12]} />
+            <meshStandardMaterial color="#f8fafc" roughness={0.35} />
+          </mesh>
+          <mesh position={[0, 0.038, 0]}>
+            <cylinderGeometry args={[0.007, 0.007, 0.024, 12]} />
+            <meshStandardMaterial color={capCol} roughness={0.4} />
+          </mesh>
+        </group>
       ))}
-      <Slab args={[0.42, 0.022, 0.045]} position={[0.15, -0.34, 0.026]} color="#cbd5e1" roughness={0.4} metalness={0.5} />
+      <RoundedBox args={[0.085, 0.026, 0.038]} radius={0.005} position={[0.33, -0.314, 0.032]}>
+        <meshStandardMaterial color="#334155" roughness={0.75} />
+      </RoundedBox>
     </group>
   );
 }
