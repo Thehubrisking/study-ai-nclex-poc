@@ -9,10 +9,12 @@ import { fitModel } from '../../lib/fitModel';
 const PATIENT_GLB_URL = '/models/patient.glb?v=draped_blink_v2';
 const PILLOW_GLB_URL = '/models/pillow.glb';
 const PATIENT_SCALE = 1.18;
+const INSPECTOR_BED_DEG = 36;
 
 const _euler = new THREE.Euler();
 const _deltaQuat = new THREE.Quaternion();
 const _localDelta = new THREE.Quaternion();
+const _headWorld = new THREE.Vector3();
 
 function setCharRotation(bone, rx = 0, ry = 0, rz = 0, order = 'XYZ') {
   if (!bone || !bone.userData.bindQuat || !bone.userData.charQuat) return;
@@ -80,7 +82,6 @@ function enhanceInspectorSkinMaterial(srcMat, uniforms) {
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        // Real-world pale ashen-greyish mucosal pallor on parted lips (no blue tint)
         if (uDistress > 0.01 && vLipZone > 0.01) {
           float lipLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
           vec3 ashenMucosa = vec3(lipLum * 1.16, lipLum * 1.17, lipLum * 1.21);
@@ -122,22 +123,42 @@ function enhanceInspectorSkinMaterial(srcMat, uniforms) {
         }`
       );
   };
-  mat.customProgramCacheKey = () => 'patient_inspector_distress_skin_v1';
+  mat.customProgramCacheKey = () => 'patient_inspector_distress_skin_v2';
   return mat;
 }
 
+// Spherical camera presets relative to measured CC_Base_Head world anchor:
+// azimuth > 0 = nurse's left-bedside viewpoint (+X); elevation = angle above horizontal looking onto pillow
 const CAMERA_VIEWS = {
-  face: { label: 'Face & Sweat', rotY: -0.26, rotX: 0.12, zoom: 0.86, targetY: 0.06 },
-  airway: { label: 'Airway & Lips', rotY: -0.06, rotX: -0.06, zoom: 0.74, targetY: 0.03 },
-  chest: { label: 'Chest Effort', rotY: -0.34, rotX: 0.22, zoom: 1.24, targetY: -0.06 },
+  face: {
+    label: 'Face & Sweat',
+    azimuth: 0.44,
+    elevation: 0.64,
+    radius: 0.50,
+    offset: [0.01, 0.03, 0.05],
+  },
+  airway: {
+    label: 'Airway & Lips',
+    azimuth: 0.24,
+    elevation: 0.48,
+    radius: 0.38,
+    offset: [0.01, -0.02, 0.08],
+  },
+  chest: {
+    label: 'Chest Effort',
+    azimuth: 0.54,
+    elevation: 0.58,
+    radius: 0.80,
+    offset: [0.0, -0.12, 0.18],
+  },
 };
 
 /**
- * Interactive 3D Rotating Patient Cue Inspector (modeled after WristbandArtifactInspector):
- * Lets the candidate orbit & zoom a close-up 3D bedside bust of the animated deteriorating
- * patient (clammy diaphoretic brow sweat, drooping/fluttering sedated eyelids, pale parted lips,
- * shallow labored gasping respirations), completely separate from the Patient Wristband window,
- * with a one-click launcher for the 1080p Gemini Omni Live-Action Film.
+ * Interactive 3D Patient Cue Inspector (modeled after WristbandArtifactInspector):
+ * Orbits the camera around the reclining 3D patient on his hospital pillow so specular room
+ * lights roll naturally across his glistening diaphoretic brow sweat, drooping/fluttering
+ * sedated eyelids, pale parted lips, and labored gasping chest — completely decoupled from
+ * the Patient Wristband window, with a one-click launcher for the 1080p Live-Action Film.
  */
 export default function PatientDistressInspector3D({
   vitals,
@@ -157,12 +178,12 @@ export default function PatientDistressInspector3D({
     dragging: false,
     lastX: 0,
     lastY: 0,
-    rotY: CAMERA_VIEWS.face.rotY,
-    rotX: CAMERA_VIEWS.face.rotX,
-    velY: 0,
-    velX: 0,
-    zoom: CAMERA_VIEWS.face.zoom,
-    targetY: CAMERA_VIEWS.face.targetY,
+    azimuth: CAMERA_VIEWS.face.azimuth,
+    elevation: CAMERA_VIEWS.face.elevation,
+    velAz: 0,
+    velEl: 0,
+    radius: CAMERA_VIEWS.face.radius,
+    offset: [...CAMERA_VIEWS.face.offset],
     autoSpin: false,
   });
 
@@ -175,12 +196,12 @@ export default function PatientDistressInspector3D({
     if (!p) return;
     setActivePreset(key);
     const st = interactRef.current;
-    st.rotY = p.rotY;
-    st.rotX = p.rotX;
-    st.zoom = p.zoom;
-    st.targetY = p.targetY;
-    st.velX = 0;
-    st.velY = 0;
+    st.azimuth = p.azimuth;
+    st.elevation = p.elevation;
+    st.radius = p.radius;
+    st.offset = [...p.offset];
+    st.velAz = 0;
+    st.velEl = 0;
   };
 
   useEffect(() => {
@@ -192,11 +213,7 @@ export default function PatientDistressInspector3D({
     const height = container.clientHeight || 320;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(34, width / height, 0.06, 18);
-    const computeBaseDist = (aspect) => Math.max(0.76, 0.88 / Math.max(0.55, aspect));
-    let baseDist = computeBaseDist(width / height);
-    camera.position.set(0, 0.08, baseDist * interactRef.current.zoom);
-    camera.lookAt(0, interactRef.current.targetY, 0);
+    const camera = new THREE.PerspectiveCamera(35, width / height, 0.05, 16);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -211,51 +228,53 @@ export default function PatientDistressInspector3D({
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // Natural neutral hospital examination lighting (zero blue tint!) + specular grazing light for sweat beads
-    const hemi = new THREE.HemisphereLight('#f8fafc', '#cbd5e1', 1.28);
+    // Natural neutral hospital examination lighting (zero blue tint!) + overhead specular grazing for sweat beads
+    const hemi = new THREE.HemisphereLight('#f8fafc', '#cbd5e1', 1.32);
     scene.add(hemi);
 
-    const keyLight = new THREE.DirectionalLight('#fffaf2', 1.65);
-    keyLight.position.set(1.4, 2.2, 2.1);
+    const keyLight = new THREE.DirectionalLight('#fffaf2', 1.70);
+    keyLight.position.set(1.3, 2.8, 1.4);
     scene.add(keyLight);
 
-    const sweatGlintLight = new THREE.DirectionalLight('#f1f5f9', 0.95);
-    sweatGlintLight.position.set(-1.3, 1.5, 1.2);
+    const sweatGlintLight = new THREE.DirectionalLight('#f1f5f9', 1.05);
+    sweatGlintLight.position.set(-1.2, 2.4, 0.6);
     scene.add(sweatGlintLight);
 
-    const rimLight = new THREE.DirectionalLight('#e2e8f0', 0.55);
-    rimLight.position.set(0.2, 1.1, -1.8);
-    scene.add(rimLight);
+    const headwallRim = new THREE.DirectionalLight('#e2e8f0', 0.60);
+    headwallRim.position.set(0.1, 2.0, -2.2);
+    scene.add(headwallRim);
 
-    const pivotGroup = new THREE.Group();
-    scene.add(pivotGroup);
-
-    // Anchor stage so patient's head/pillow/shoulders sit right at pivotGroup (0, 0, 0) in 32-deg Semi-Fowler's
     const stageGroup = new THREE.Group();
-    stageGroup.position.set(-0.01, -1.39, 0.78);
-    pivotGroup.add(stageGroup);
+    scene.add(stageGroup);
 
-    // Subtle contoured white cotton hospital sheet cradle behind pillow & shoulders
+    // Contoured white cotton hospital backrest + lower mattress pad so the patient rests naturally in Semi-Fowler's
     const sheetMat = new THREE.MeshStandardMaterial({
       color: '#f6f5f0',
       roughness: 0.9,
       metalness: 0,
     });
-    const backrestAngle = THREE.MathUtils.degToRad(32 * 0.76);
+    const elevRad = THREE.MathUtils.degToRad(INSPECTOR_BED_DEG);
     const backrestGroup = new THREE.Group();
     backrestGroup.position.set(0, 1.072, -0.31);
-    backrestGroup.rotation.x = backrestAngle;
+    backrestGroup.rotation.x = elevRad * 0.76;
 
-    const upperSheet = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.055, 0.82), sheetMat);
-    upperSheet.position.set(0, 0.005, -0.46);
+    const upperSheet = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.06, 0.86), sheetMat);
+    upperSheet.position.set(0, 0.004, -0.45);
     backrestGroup.add(upperSheet);
     stageGroup.add(backrestGroup);
+
+    const lowerMattress = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.08, 1.55), sheetMat);
+    lowerMattress.position.set(0, 1.068, 0.44);
+    stageGroup.add(lowerMattress);
 
     const loader = new GLTFLoader();
     const bonesMap = {};
     const skinUniforms = { uDistress: { value: 1.0 } };
+    const headAnchor = new THREE.Vector3(0, 1.54, -0.82);
+    const smoothTarget = new THREE.Vector3(0, 1.56, -0.77);
+    const desiredCamPos = new THREE.Vector3();
 
-    // Load smooth concave pillow
+    // Load smooth concave hospital pillow
     loader.load(
       PILLOW_GLB_URL,
       (gltf) => {
@@ -332,12 +351,21 @@ export default function PatientDistressInspector3D({
           }
         });
 
-        // Relaxed palm-down arms so shoulders & sleeves drape naturally in the chest view
-        const elevRad = THREE.MathUtils.degToRad(32);
+        // Pose Semi-Fowler's spine & relaxed palm-down arms on mattress
+        setCharRotation(bonesMap.CC_Base_Waist, elevRad * 0.34, 0, 0);
+        setCharRotation(bonesMap.CC_Base_Spine01, elevRad * 0.25, 0, 0.012);
+        setCharRotation(bonesMap.CC_Base_Spine02, elevRad * 0.17, 0, -0.01);
         setCharRotation(bonesMap.CC_Base_L_Upperarm, 0.12 - elevRad * 0.098, -0.234, -0.373);
         setCharRotation(bonesMap.CC_Base_L_Forearm, 0.887 - elevRad * 0.372, -0.407, -0.027 + elevRad * 0.255);
+        setCharRotation(bonesMap.CC_Base_L_ForearmTwist01, 0.11, -0.05, 0.15);
+        setCharRotation(bonesMap.CC_Base_L_ForearmTwist02, 0.12, -0.05, 0.16);
+        setCharRotation(bonesMap.CC_Base_L_Hand, 0.238 - elevRad * 0.07, -0.058, 0.364 + elevRad * 0.084);
+
         setCharRotation(bonesMap.CC_Base_R_Upperarm, 0.115 - elevRad * 0.098, 0.225, 0.358);
         setCharRotation(bonesMap.CC_Base_R_Forearm, 0.855 - elevRad * 0.365, 0.395, 0.025 - elevRad * 0.25);
+        setCharRotation(bonesMap.CC_Base_R_ForearmTwist01, 0.11, 0.05, -0.15);
+        setCharRotation(bonesMap.CC_Base_R_ForearmTwist02, 0.12, 0.05, -0.16);
+        setCharRotation(bonesMap.CC_Base_R_Hand, 0.235 - elevRad * 0.07, 0.058, -0.358 - elevRad * 0.084);
 
         const outer = new THREE.Group();
         outer.position.set(0, 1.178, -0.05);
@@ -350,6 +378,14 @@ export default function PatientDistressInspector3D({
         rotXGroup.add(scaleGroup);
         outer.add(rotXGroup);
         stageGroup.add(outer);
+
+        // Measure exact world position of CC_Base_Head once posed in Semi-Fowler's
+        stageGroup.updateMatrixWorld(true);
+        if (bonesMap.CC_Base_Head) {
+          bonesMap.CC_Base_Head.getWorldPosition(_headWorld);
+          headAnchor.copy(_headWorld);
+          smoothTarget.copy(_headWorld).add(new THREE.Vector3(...interactRef.current.offset));
+        }
 
         setLoaded(true);
       },
@@ -367,8 +403,8 @@ export default function PatientDistressInspector3D({
       st.dragging = true;
       st.lastX = e.clientX;
       st.lastY = e.clientY;
-      st.velY = 0;
-      st.velX = 0;
+      st.velAz = 0;
+      st.velEl = 0;
       dom.style.cursor = 'grabbing';
       dom.setPointerCapture?.(e.pointerId);
     };
@@ -380,10 +416,10 @@ export default function PatientDistressInspector3D({
       const dy = e.clientY - st.lastY;
       st.lastX = e.clientX;
       st.lastY = e.clientY;
-      st.velY = dx * 0.009;
-      st.velX = dy * 0.007;
-      st.rotY = THREE.MathUtils.clamp(st.rotY + st.velY, -1.15, 1.15);
-      st.rotX = THREE.MathUtils.clamp(st.rotX + st.velX, -0.52, 0.72);
+      st.velAz = -dx * 0.0085;
+      st.velEl = dy * 0.0075;
+      st.azimuth = THREE.MathUtils.clamp(st.azimuth + st.velAz, -1.22, 1.28);
+      st.elevation = THREE.MathUtils.clamp(st.elevation + st.velEl, 0.24, 1.30);
     };
 
     const onPointerUp = (e) => {
@@ -396,7 +432,7 @@ export default function PatientDistressInspector3D({
       e.preventDefault();
       e.stopPropagation();
       const st = interactRef.current;
-      st.zoom = THREE.MathUtils.clamp(st.zoom + e.deltaY * 0.001, 0.58, 1.55);
+      st.radius = THREE.MathUtils.clamp(st.radius + e.deltaY * 0.0006, 0.30, 1.05);
     };
 
     dom.addEventListener('pointerdown', onPointerDown);
@@ -410,7 +446,6 @@ export default function PatientDistressInspector3D({
       const w = container.clientWidth || 480;
       const h = container.clientHeight || 320;
       camera.aspect = w / h;
-      baseDist = computeBaseDist(camera.aspect);
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     };
@@ -418,33 +453,25 @@ export default function PatientDistressInspector3D({
 
     let rafId = 0;
     const clock = new THREE.Clock();
-    const elevRad = THREE.MathUtils.degToRad(32);
+    const goalTarget = new THREE.Vector3();
 
     const animate = () => {
       rafId = requestAnimationFrame(animate);
-      const dt = Math.min(clock.getDelta(), 0.05);
+      clock.getDelta();
       const elapsed = clock.elapsedTime;
       const st = interactRef.current;
 
       if (!st.dragging) {
-        st.rotY = THREE.MathUtils.clamp(st.rotY + st.velY, -1.15, 1.15);
-        st.rotX = THREE.MathUtils.clamp(st.rotX + st.velX, -0.52, 0.72);
-        st.velY *= 0.91;
-        st.velX *= 0.90;
-        if (st.autoSpin && Math.abs(st.velY) < 0.002) {
-          st.rotY = Math.sin(elapsed * 0.48) * 0.42 - 0.16;
+        st.azimuth = THREE.MathUtils.clamp(st.azimuth + st.velAz, -1.22, 1.28);
+        st.elevation = THREE.MathUtils.clamp(st.elevation + st.velEl, 0.24, 1.30);
+        st.velAz *= 0.91;
+        st.velEl *= 0.90;
+        if (st.autoSpin && Math.abs(st.velAz) < 0.002) {
+          st.azimuth = 0.36 + Math.sin(elapsed * 0.52) * 0.44;
         }
       }
 
-      pivotGroup.rotation.order = 'YXZ';
-      pivotGroup.rotation.y = st.rotY;
-      pivotGroup.rotation.x = st.rotX;
-
-      camera.position.z = THREE.MathUtils.lerp(camera.position.z, baseDist * st.zoom, 0.14);
-      camera.lookAt(0, st.targetY, 0);
-
       // Animate 3D patient matching the Gemini Omni clinical acting clip:
-      // 1) Slow, shallow, labored gasping respirations (RR ~8-10/min)
       const rr = Math.max(6, vitalsRef.current?.rr || 10);
       const cycleSec = 60 / rr;
       const u = (elapsed % cycleSec) / cycleSec;
@@ -467,26 +494,28 @@ export default function PatientDistressInspector3D({
         );
         setCharRotation(bonesMap.CC_Base_Spine02, elevRad * 0.17 + gasp * 0.046, 0, -0.01);
 
-        // Accessory shoulder/clavicle lift on each labored inspiratory gasp
         setCharRotation(bonesMap.CC_Base_L_Clavicle, -0.03 + gasp * 0.042, 0.05, -0.05);
         setCharRotation(bonesMap.CC_Base_R_Clavicle, -0.03 + gasp * 0.042, -0.05, 0.05);
 
-        // Head turned slightly left on the pillow (+ry) with sluggish drowsy sway & inspiratory airway gasp
-        const drowsyYaw = 0.38 + Math.sin(elapsed * 0.55) * 0.055 - st.rotY * 0.18;
+        // Head turned slightly left on the pillow (+ry) with sluggish tracking of camera azimuth
+        const drowsyYaw = THREE.MathUtils.clamp(
+          0.32 + st.azimuth * 0.22 + Math.sin(elapsed * 0.55) * 0.045,
+          -0.18,
+          0.65
+        );
         setCharRotation(
           bonesMap.CC_Base_NeckTwist01,
-          0.11 + elevRad * 0.05 - gasp * 0.025,
+          0.14 + elevRad * 0.04 - gasp * 0.025,
           drowsyYaw * 0.52,
-          0.07
+          0.06
         );
         setCharRotation(
           bonesMap.CC_Base_Head,
-          0.12 + elevRad * 0.04 - gasp * 0.048,
+          0.14 + elevRad * 0.03 - gasp * 0.048,
           drowsyYaw * 0.48,
           0.04
         );
 
-        // Open-mouth parted pale lips gasping with each shallow breath
         if (bonesMap.CC_Base_JawRoot) {
           const jawOpen = 0.13 + gasp * 0.12;
           setCharRotation(bonesMap.CC_Base_JawRoot, jawOpen, 0, 0);
@@ -512,12 +541,30 @@ export default function PatientDistressInspector3D({
         setCharRotation(bonesMap.CC_Base_L_LowerLid, -lidClose * 0.14, 0, 0);
         setCharRotation(bonesMap.CC_Base_R_LowerLid, -lidClose * 0.14, 0, 0);
 
-        // Eyes softly track toward the inspector camera during brief arousal flutters
-        const eyeYaw = THREE.MathUtils.clamp(-st.rotY * 0.35 - 0.12, -0.26, 0.26);
-        const eyePitch = THREE.MathUtils.clamp(0.16 + st.rotX * 0.22, 0.04, 0.30);
+        const eyeYaw = THREE.MathUtils.clamp((st.azimuth - drowsyYaw) * 0.45, -0.26, 0.26);
+        const eyePitch = THREE.MathUtils.clamp(0.22 - (st.elevation - 0.55) * 0.22, 0.06, 0.30);
         setCharRotation(bonesMap.CC_Base_L_Eye, eyePitch, eyeYaw, 0);
         setCharRotation(bonesMap.CC_Base_R_Eye, eyePitch, eyeYaw, 0);
       }
+
+      // Spherical camera orbit around exact head/face anchor (keeps narrow aspect ratios framed cleanly)
+      const aspectBoost = camera.aspect < 1.1 ? 1.1 / Math.max(0.55, camera.aspect) : 1.0;
+      const effRadius = st.radius * aspectBoost;
+      goalTarget.set(
+        headAnchor.x + st.offset[0],
+        headAnchor.y + st.offset[1],
+        headAnchor.z + st.offset[2]
+      );
+      smoothTarget.lerp(goalTarget, 0.16);
+
+      const cosEl = Math.cos(st.elevation);
+      desiredCamPos.set(
+        smoothTarget.x + effRadius * cosEl * Math.sin(st.azimuth),
+        smoothTarget.y + effRadius * Math.sin(st.elevation),
+        smoothTarget.z + effRadius * cosEl * Math.cos(st.azimuth)
+      );
+      camera.position.lerp(desiredCamPos, 0.18);
+      camera.lookAt(smoothTarget);
 
       renderer.render(scene, camera);
     };
@@ -639,7 +686,7 @@ export default function PatientDistressInspector3D({
           <button
             type="button"
             onClick={() => setAutoSpin((s) => !s)}
-            title="Toggle gentle 3D sway"
+            title="Toggle gentle bedside camera sway"
             style={{
               height: '26px',
               padding: '0 9px',
@@ -661,7 +708,7 @@ export default function PatientDistressInspector3D({
           <button
             type="button"
             onClick={() => {
-              interactRef.current.zoom = Math.max(0.58, interactRef.current.zoom - 0.14);
+              interactRef.current.radius = Math.max(0.30, interactRef.current.radius - 0.08);
             }}
             title="Zoom in"
             style={{
@@ -683,7 +730,7 @@ export default function PatientDistressInspector3D({
           <button
             type="button"
             onClick={() => {
-              interactRef.current.zoom = Math.min(1.55, interactRef.current.zoom + 0.14);
+              interactRef.current.radius = Math.min(1.05, interactRef.current.radius + 0.08);
             }}
             title="Zoom out"
             style={{
@@ -759,7 +806,7 @@ export default function PatientDistressInspector3D({
             pointerEvents: 'none',
           }}
         >
-          Drag to rotate 3D patient · Scroll to inspect brow sweat & lips
+          Drag to orbit bedside view · Scroll to inspect brow sweat & lips
         </div>
       </div>
 
