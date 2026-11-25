@@ -116,18 +116,11 @@ export default function StudyAiExamPage() {
   const [darkMode, setDarkMode] = useState(true);
   const [audioMuted, setAudioMuted] = useState(true);
   // Render quality (DPR) mode, remembered between sessions; stats come back from the 3D canvas
+  // Default every new session to 'auto' so a prior click to 'high' never persists lag across reloads
   const [quality, setQuality] = useState('auto');
   const [qualityStats, setQualityStats] = useState({ fps: 60, dpr: 1 });
-  useEffect(() => {
-    const saved = window.localStorage.getItem('studyai.quality.v2');
-    if (saved && QUALITY_MODES.includes(saved)) setQuality(saved);
-  }, []);
   const cycleQuality = useCallback(() => {
-    setQuality((q) => {
-      const next = QUALITY_MODES[(QUALITY_MODES.indexOf(q) + 1) % QUALITY_MODES.length];
-      window.localStorage.setItem('studyai.quality.v2', next);
-      return next;
-    });
+    setQuality((q) => QUALITY_MODES[(QUALITY_MODES.indexOf(q) + 1) % QUALITY_MODES.length]);
   }, []);
   const [cameraFocusId, setCameraFocusId] = useState('overview');
   const [cameraTrigger, setCameraTrigger] = useState(0);

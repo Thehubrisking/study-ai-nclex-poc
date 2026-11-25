@@ -1676,7 +1676,8 @@ const _headUp = new THREE.Vector3();
 const _headFront = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 
-const PATIENT_GLB_URL = '/models/patient.glb?v=male01_v2';
+const PATIENT_GLB_URL = '/models/patient.glb?v=accurig_v1';
+const PATIENT_SCALE = 1.18;
 
 function PatientAndWristband({
   bedAngle,
@@ -1694,6 +1695,7 @@ function PatientAndWristband({
 }) {
   const { scene } = useGLTF(PATIENT_GLB_URL);
   const materials = useRef([]);
+  const bonesRef = useRef({});
   const currAngleRef = useRef(0);
   const headOverlayRef = useRef();
   const leftWristRef = useRef();
@@ -1754,29 +1756,23 @@ function PatientAndWristband({
     verbalCues,
   ]);
 
-  const targetLength = 2.3;
-  const scale = targetLength / Math.max(...MODEL_SIZE);
-  const offset = useMemo(
-    () => [
-      -MODEL_CENTER[0] * scale,
-      -MODEL_CENTER[1] * scale,
-      -MODEL_CENTER[2] * scale,
-    ],
-    [scale]
-  );
-
   useLayoutEffect(() => {
     const skinMats = [];
     const allMats = [];
-    scene.traverse((m) => {
-      if (m.isMesh) {
-        // Skip shadow-map skinning & CPU SkinnedMesh.raycast (which otherwise transforms
-        // every skinned vertex by 4 bone matrices in JS on every pointermove over the bed!).
-        m.castShadow = false;
-        m.receiveShadow = true;
-        m.frustumCulled = false;
-        m.raycast = () => {};
-        const list = Array.isArray(m.material) ? m.material : [m.material];
+    const bmap = {};
+
+    scene.updateMatrixWorld(true);
+    const sceneWorldQuatInv = new THREE.Quaternion();
+    scene.getWorldQuaternion(sceneWorldQuatInv).invert();
+    const boneWorldQuat = new THREE.Quaternion();
+
+    scene.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.castShadow = false;
+        obj.receiveShadow = true;
+        obj.frustumCulled = false;
+        obj.raycast = () => {};
+        const list = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const mat of list) {
           if (!mat || !mat.isMeshStandardMaterial) continue;
           allMats.push(mat);
@@ -1786,47 +1782,51 @@ function PatientAndWristband({
             mat.roughness = 0.88;
             mat.metalness = 0.0;
           } else if (mname.includes('eye')) {
-            mat.roughness = 0.06;
+            mat.roughness = 0.05;
+            mat.metalness = 0.0;
+          } else if (mname.includes('teeth')) {
+            mat.roughness = 0.35;
             mat.metalness = 0.0;
           } else {
             skinMats.push(mat);
           }
         }
       }
-    });
-    materials.current = skinMats.length > 0 ? skinMats : allMats;
 
-    const capture = (name) => {
-      const bone = scene.getObjectByName(name);
-      if (bone && !bone.userData.bindQuat) {
-        bone.userData.bindQuat = bone.quaternion.clone();
+      if (obj.isBone || obj.name?.startsWith('CC_Base_') || obj.name === 'RL_BoneRoot') {
+        if (!obj.userData.bindQuat) {
+          obj.userData.bindQuat = obj.quaternion.clone();
+        }
+        obj.getWorldQuaternion(boneWorldQuat);
+        obj.userData.charQuat = sceneWorldQuatInv.clone().multiply(boneWorldQuat);
+        obj.userData.charQuatInv = obj.userData.charQuat.clone().invert();
+        bmap[obj.name] = obj;
       }
-    };
-    [
-      'Waist',
-      'Spine01',
-      'Spine02',
-      'NeckTwist01',
-      'NeckTwist02',
-      'Head',
-      'L_Clavicle',
-      'R_Clavicle',
-      'L_Upperarm',
-      'R_Upperarm',
-      'L_Forearm',
-      'R_Forearm',
-      'L_Hand',
-      'R_Hand',
-      'L_Thigh',
-      'R_Thigh',
-      'L_Calf',
-      'R_Calf',
-    ].forEach(capture);
+    });
+
+    materials.current = skinMats.length > 0 ? skinMats : allMats;
+    bonesRef.current = bmap;
+
+    // Pose all 30 AccuRIG finger phalanx bones into a natural relaxed bedside hand posture once at mount
+    ['L', 'R'].forEach((side) => {
+      const sgn = side === 'L' ? -1 : 1;
+      ['Index', 'Mid', 'Ring', 'Pinky'].forEach((f, fi) => {
+        const cascade = 1 + fi * 0.08;
+        setNurseCharRotation(bmap[`CC_Base_${side}_${f}1`], 0.24 * cascade, 0, 0.26 * sgn * cascade);
+        setNurseCharRotation(bmap[`CC_Base_${side}_${f}2`], 0.32 * cascade, 0, 0.34 * sgn * cascade);
+        setNurseCharRotation(bmap[`CC_Base_${side}_${f}3`], 0.22 * cascade, 0, 0.24 * sgn * cascade);
+      });
+      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb1`], 0.18, -0.15 * sgn, 0.16 * sgn);
+      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb2`], 0.22, 0, 0.18 * sgn);
+      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb3`], 0.16, 0, 0.14 * sgn);
+    });
   }, [scene]);
 
   useFrame((state, delta) => {
     const elapsed = state.clock.elapsedTime;
-    // 1. Sub-100ms cyanosis + postoperative hemorrhage pallor & diaphoretic skin sheen
+    const B = bonesRef.current;
+
+    // 1. Sub-100ms cyanosis + postoperative hemorrhage pallor & diaphoretic skin sheen (skin material only)
     const t = THREE.MathUtils.clamp((94 - live.spo2) / 14, 0, 1);
     const pallor = crystalloidBolus ? 0.06 : hemorrhageShock ? 0.34 : 0.18;
     _tint.setRGB(
@@ -1834,18 +1834,16 @@ function PatientAndWristband({
       1 - 0.32 * t + pallor * 0.04,
       1 - 0.06 * t + pallor * 0.06
     );
-    // Multiply against Male 01's PBR roughnessMap (~0.55) so normal skin reads matte-natural (~0.46)
-    // and hemorrhagic shock shows a subtle diaphoretic sheen (~0.36) without looking oily
     const targetRoughness = crystalloidBolus ? 0.92 : hemorrhageShock ? 0.66 : 0.84;
     for (const m of materials.current) {
       m.color.copy(_tint);
-      m.roughness = targetRoughness; // Diaphoresis: cool clammy sweat sheen when hypovolemic
+      m.roughness = targetRoughness;
       if (m.emissive) {
         m.emissive.copy(_cyanEmissive).multiplyScalar(live.cyanosis * 0.22);
       }
     }
 
-    // 2. Sub-100ms Fowler's / High Fowler's spine articulation + clinical state animations
+    // 2. Sub-100ms Fowler's / High Fowler's spine articulation + clinical state animations (Character Space)
     currAngleRef.current = THREE.MathUtils.lerp(
       currAngleRef.current,
       bedAngle,
@@ -1855,108 +1853,91 @@ function PatientAndWristband({
     const breath = (Math.sin(live.respPhase - Math.PI / 2) + 1) / 2;
     const isBradypneic = live.rr <= 10;
     const isDistressed = live.spo2 < 92 && !isBradypneic;
-    const distressAmt = isDistressed ? 1 : 0;
-    const breathAmp = isBradypneic
-      ? 0.014
-      : isDistressed
-        ? 0.058
-        : 0.036;
+    const breathAmp = isBradypneic ? 0.014 : isDistressed ? 0.052 : 0.032;
 
-    // Restless head tossing & abdominal spasm during hypoxia vs limp head roll in bradypnea
     const headRestlessYaw = isBradypneic
-      ? 0.38
+      ? -0.28
       : isDistressed
-        ? Math.sin(elapsed * 1.9) * 0.22
-        : Math.sin(elapsed * 0.6) * 0.06;
+        ? Math.sin(elapsed * 1.9) * 0.2
+        : Math.sin(elapsed * 0.6) * 0.05;
     const spasm = isDistressed ? (Math.sin(elapsed * 3.4) + 1) * 0.5 : 0;
 
-    const pose = (name, rx, ry, rz) => {
-      const bone = scene.getObjectByName(name);
-      if (!bone || !bone.userData.bindQuat) return;
-      bone.quaternion.copy(bone.userData.bindQuat);
-      bone.rotateX(rx);
-      bone.rotateY(ry);
-      bone.rotateZ(rz);
-    };
-
-    // Negative X rotation on Waist/Spine01/Spine02 lifts the patient's torso upward (+Y)
-    pose('Waist', -elevRad * 0.42, 0, 0);
-    pose(
-      'Spine01',
-      -elevRad * 0.35 - breath * breathAmp - spasm * 0.035,
-      isDistressed ? Math.sin(elapsed * 1.4) * 0.03 : 0,
+    // Positive rx in Character Space pitches Waist/Spine01/Spine02 forward (lifting chest up into Fowler's!)
+    setNurseCharRotation(B.CC_Base_Waist, elevRad * 0.42, 0, 0);
+    setNurseCharRotation(
+      B.CC_Base_Spine01,
+      elevRad * 0.35 + breath * breathAmp + spasm * 0.03,
+      isDistressed ? Math.sin(elapsed * 1.4) * 0.025 : 0,
       0
     );
-    pose('Spine02', -elevRad * 0.25 - breath * breathAmp, 0, 0);
-    pose('L_Clavicle', -breath * breathAmp * 0.5, 0, 0);
-    pose('R_Clavicle', -breath * breathAmp * 0.5, 0, 0);
-    pose(
-      'NeckTwist01',
-      -0.16 + elevRad * 0.12 + (isBradypneic ? 0.14 : 0),
+    setNurseCharRotation(B.CC_Base_Spine02, elevRad * 0.25 + breath * breathAmp, 0, 0);
+    setNurseCharRotation(B.CC_Base_L_Clavicle, breath * breathAmp * 0.4, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_Clavicle, breath * breathAmp * 0.4, 0, 0);
+    setNurseCharRotation(
+      B.CC_Base_NeckTwist01,
+      0.12 - elevRad * 0.06 - (isBradypneic ? 0.1 : 0),
       headRestlessYaw * 0.6,
-      isBradypneic ? 0.18 : 0
+      isBradypneic ? -0.15 : 0
     );
-    pose('Head', breath * 0.03, headRestlessYaw * 0.4, 0);
+    setNurseCharRotation(B.CC_Base_Head, -breath * 0.025, headRestlessYaw * 0.4, 0);
 
-    // Left arm (Male 01 A-pose rig) rests gently along the patient's left side clear of backrest pad
-    pose(
-      'L_Upperarm',
-      -0.16 + elevRad * 0.2,
-      -Math.max(0, elevRad) * 0.05,
-      -0.58
+    // Subtle open-mouth gasping during bradypnea/hypoxia vs relaxed closed jaw when stabilized
+    if (B.CC_Base_JawRoot) {
+      const jawOpen = isBradypneic ? 0.14 + breath * 0.06 : isDistressed ? 0.08 + breath * 0.08 : 0.02;
+      setNurseCharRotation(B.CC_Base_JawRoot, jawOpen, 0, 0);
+    }
+
+    // Left & Right AccuRIG arms rest symmetrically along the mattress beside the hips
+    setNurseCharRotation(
+      B.CC_Base_L_Upperarm,
+      0.22 - elevRad * 0.24,
+      0,
+      -0.48
     );
-    pose('L_Forearm', -0.22 + breath * 0.02, 0, -0.10);
-    pose('L_Hand', -0.06, 0, 0);
+    setNurseCharRotation(B.CC_Base_L_Forearm, 0.18 - breath * 0.02, 0, -0.08);
+    setNurseCharRotation(B.CC_Base_L_Hand, 0.06, 0, 0);
 
-    // Right arm rests symmetrically along the patient's right side under the IV cannula
-    pose(
-      'R_Upperarm',
-      -0.16 + elevRad * 0.2,
-      Math.max(0, elevRad) * 0.05,
-      0.58
+    setNurseCharRotation(
+      B.CC_Base_R_Upperarm,
+      0.22 - elevRad * 0.24,
+      0,
+      0.48
     );
-    pose('R_Forearm', -0.22 + breath * 0.02, 0, 0.10);
-    pose('R_Hand', -0.06, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_Forearm, 0.18 - breath * 0.02, 0, 0.08);
+    setNurseCharRotation(B.CC_Base_R_Hand, 0.06, 0, 0);
 
-    // Subtle restless lower-limb shift when hypoxic
-    const legShift = isDistressed ? Math.sin(elapsed * 1.3) * 0.05 : 0;
-    pose('L_Thigh', legShift, 0, 0);
-    pose('R_Thigh', -legShift, 0, 0);
+    const legShift = isDistressed ? Math.sin(elapsed * 1.3) * 0.045 : 0;
+    setNurseCharRotation(B.CC_Base_L_Thigh, legShift, 0, 0);
+    setNurseCharRotation(B.CC_Base_R_Thigh, -legShift, 0, 0);
 
-    if (headOverlayRef.current) {
-      // Track the real Head bone so the O2 mask covers both nose bridge and mouth at every bed angle
-      const headBone = scene.getObjectByName('Head');
-      const overlay = headOverlayRef.current;
-      if (headBone && overlay.parent) {
-        headBone.updateWorldMatrix(true, false);
-        headBone.getWorldPosition(_headPos);
-        headBone.getWorldQuaternion(_headQuat);
-        _headUp.set(0, 1, 0).applyQuaternion(_headQuat);
-        _headFront.set(0, 0, -1).applyQuaternion(_headQuat);
-        _headPos.addScaledVector(_headUp, 0.105).addScaledVector(_headFront, 0.145);
-        overlay.parent.worldToLocal(overlay.position.copy(_headPos));
-        if (maskRef.current) {
-          // Cone tip (+Y) points away from the face so its open base sits over nose & mouth
-          maskRef.current.quaternion.setFromUnitVectors(_yAxis, _headFront);
-        }
+    if (headOverlayRef.current && B.CC_Base_Head && headOverlayRef.current.parent) {
+      const headBone = B.CC_Base_Head;
+      headBone.updateWorldMatrix(true, false);
+      headBone.getWorldPosition(_headPos);
+      headBone.getWorldQuaternion(_headQuat);
+      // Convert bone world quaternion to Character-Space world orientation (+Y = crown, +Z = nose forward)
+      _headQuat.multiply(headBone.userData.charQuatInv);
+      _headUp.set(0, 1, 0).applyQuaternion(_headQuat);
+      _headFront.set(0, 0, 1).applyQuaternion(_headQuat);
+      _headPos.addScaledVector(_headUp, 0.045).addScaledVector(_headFront, 0.185);
+      headOverlayRef.current.parent.worldToLocal(headOverlayRef.current.position.copy(_headPos));
+      if (maskRef.current) {
+        maskRef.current.quaternion.setFromUnitVectors(_yAxis, _headFront);
       }
     }
 
-    // Keep Left ID Wristband & Right Hand IV Cannula locked cleanly onto Male 01's wrists across Fowler's angles
-    const lHandBone = scene.getObjectByName('L_Hand');
-    if (lHandBone && leftWristRef.current?.parent) {
-      lHandBone.updateWorldMatrix(true, false);
-      lHandBone.getWorldPosition(_headPos);
-      _headPos.y += 0.026;
+    if (B.CC_Base_L_Hand && leftWristRef.current?.parent) {
+      B.CC_Base_L_Hand.updateWorldMatrix(true, false);
+      B.CC_Base_L_Hand.getWorldPosition(_headPos);
+      _headPos.y += 0.015;
       _headPos.z -= 0.015;
       leftWristRef.current.parent.worldToLocal(leftWristRef.current.position.copy(_headPos));
     }
-    const rHandBone = scene.getObjectByName('R_Hand');
-    if (rHandBone && rightHandIvRef.current?.parent) {
-      rHandBone.updateWorldMatrix(true, false);
-      rHandBone.getWorldPosition(_headPos);
-      _headPos.y += 0.028;
-      _headPos.z += 0.025;
+    if (B.CC_Base_R_Hand && rightHandIvRef.current?.parent) {
+      B.CC_Base_R_Hand.updateWorldMatrix(true, false);
+      B.CC_Base_R_Hand.getWorldPosition(_headPos);
+      _headPos.y += 0.022;
+      _headPos.z += 0.02;
       rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_headPos));
     }
   });
@@ -1964,30 +1945,25 @@ function PatientAndWristband({
   // Exam mode: neutral border (no red/amber/green "how am I doing" colouring)
   const bubbleBorderColor = 'rgba(148, 163, 184, 0.7)';
   const hotspotCtx = React.useContext(HotspotContext);
-  // The patient's verbal response is an assessment finding: it is only shown while the candidate is
-  // actively at the bedside assessing the patient (Patient Wrist station open), never as a live
-  // floating indicator of whether interventions are working.
   const patientAssessed = hotspotCtx.visible && isSelected;
 
   return (
     <group>
-      {/* Rigged 3D Patient Model + 12-triangle instant click hitbox */}
+      {/* Rigged AccuRIG 3D Patient Model + 12-triangle instant click hitbox */}
       <group
-        position={[0, 1.2, -0.1]}
+        position={[0, 1.16, -0.04]}
         onClick={stop(() => {
           onSelectObject('wristband');
           speakPatientCue(verbalState.text, false);
         })}
       >
-        <mesh position={[0, 0.06, 0.06]}>
-          <boxGeometry args={[0.56, 0.3, 1.78]} />
+        <mesh position={[0, 0.08, 0.0]}>
+          <boxGeometry args={[0.58, 0.3, 1.85]} />
           <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
         </mesh>
-        <group rotation={[0, 0, Math.PI / 2]}>
-          <group rotation={[-Math.PI / 2, 0, 0]}>
-            <group scale={scale} position={offset}>
-              <primitive object={scene} />
-            </group>
+        <group rotation={[-Math.PI / 2, 0, 0]}>
+          <group scale={PATIENT_SCALE} position={[0, -0.89 * PATIENT_SCALE, 0]}>
+            <primitive object={scene} />
           </group>
         </group>
       </group>
@@ -2804,11 +2780,11 @@ function SplineTube({
   );
 }
 
-/** O2 mask attachment point (world) at 0° / 30° / 60° head-of-bed, measured from Male 01's Head bone. */
+/** O2 mask attachment point (world) at 0° / 30° / 60° head-of-bed, measured from AccuRIG CC_Base_Head. */
 const MASK_AT_ANGLE = [
-  [0, [0.0, 1.325, -1.025]],
-  [30, [-0.006, 1.666, -0.853]],
-  [60, [-0.017, 1.893, -0.55]],
+  [0, [0.0, 1.345, -0.88]],
+  [30, [0.0, 1.58, -0.71]],
+  [60, [0.0, 1.715, -0.445]],
 ];
 function maskPointForAngle(deg) {
   const a = THREE.MathUtils.clamp(deg, 0, 60);
