@@ -3000,7 +3000,7 @@ function BedsideMonitor3D({
 }
 
 /* ---------- 4. Wall Oxygen Delivery Unit & Respiratory Ventilator Supply ---------- */
-const WALL_O2_POS = [-0.88, 0, -1.845]; // x / z of the headwall flowmeter body, flush with the headwall rail
+const WALL_O2_POS = [-0.98, 0, -1.855]; // plugged directly into the green headwall O2 outlet (-0.98)
 const VENTILATOR_POS = [-1.75, 0, -1.45]; // tucked into the headwall corner, leaving a walkway to the O2 outlet
 
 function WallOxygenPanel3D({
@@ -3305,8 +3305,8 @@ function IvPumpPole3D({
       <primitive object={fittedPole} />
 
       {/* Pole-Clamped BD Alaris / Hospira Smart Morphine PCA Syringe Infusion Pump
-          (Replaces both the floating generic capsule IV bag AND the plain yellow-square box!) */}
-      <group position={[shaftX, 1.26, shaftZ]} rotation={[0, Math.PI * 0.72, 0]}>
+          (World yaw +0.52 rad faces squarely toward both IV Infusion Pump & Doorway cameras!) */}
+      <group position={[shaftX, 1.26, shaftZ]} rotation={[0, Math.PI + 0.52, 0]}>
         {/* Machined aluminum C-clamp + rubberized handwheel gripping the vertical IV pole shaft */}
         <mesh rotation={[0, 0, 0]}>
           <cylinderGeometry args={[0.024, 0.024, 0.075, 20]} />
@@ -3692,8 +3692,8 @@ function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle 
         opacity={0.72}
         radius={0.0048}
         points={[
-          [-0.88, 1.26, -1.788],
-          [-0.78, 1.04, -1.52],
+          [-0.98, 1.26, -1.798],
+          [-0.84, 1.04, -1.52],
           [-0.52, 1.08, -1.18],
           [-0.24, Math.max(1.16, my - 0.18), mz - 0.04],
           [mx - 0.04, my - 0.055, mz + 0.045],
