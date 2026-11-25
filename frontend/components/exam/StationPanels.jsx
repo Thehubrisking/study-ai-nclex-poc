@@ -255,7 +255,7 @@ export default function StationPanelBody(props) {
             borderRadius: '14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '7px',
+            gap: '8px',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -267,17 +267,21 @@ export default function StationPanelBody(props) {
                 color: tk.section,
               }}
             >
-              PATIENT ID WRISTBAND
+              3D WRISTBAND ARTIFACT INSPECTION
             </span>
             <UserCheck size={15} color={tk.muted} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14.5px', fontWeight: 800 }}>
-            <span>{p.name}</span>
-            <span className="font-mono-clinical" style={{ fontSize: '12.5px', color: tk.muted }}>
-              {p.mrn}
-            </span>
+          <div style={{ fontSize: '12.5px', color: tk.muted, lineHeight: 1.5 }}>
+            Rotate the 3D wristband artifact to inspect the printed thermal patient label (Name, DOB, MRN, Barcode) and rear allergy clasp.
           </div>
-          <div style={{ fontSize: '12px', color: tk.muted }}>DOB: {p.dob}</div>
+          {props.verifiedId && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13.5px', fontWeight: 800, marginTop: '2px' }}>
+              <span>{p.name} ({p.dob})</span>
+              <span className="font-mono-clinical" style={{ fontSize: '12px', color: tk.muted }}>
+                {p.mrn}
+              </span>
+            </div>
+          )}
           <div
             style={{
               marginTop: '2px',
@@ -295,6 +299,11 @@ export default function StationPanelBody(props) {
           >
             {ex.wristband.allergy_band_text}
           </div>
+          {!props.wristbandArtifactOpen && props.onOpenWristbandArtifact && (
+            <OptionButton tk={tk} onClick={props.onOpenWristbandArtifact}>
+              Re-open 3D Rotating Wristband Artifact
+            </OptionButton>
+          )}
         </div>
         {props.verifiedId ? (
           <Note tk={tk} icon={UserCheck}>

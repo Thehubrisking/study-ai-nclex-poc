@@ -69,6 +69,11 @@ const Room3D = dynamic(() => import('../components/Room3D'), {
   ),
 });
 
+const WristbandArtifactInspector = dynamic(
+  () => import('../components/exam/WristbandArtifactInspector'),
+  { ssr: false }
+);
+
 const EX = scenarioData.exam_config;
 const OBJECT_ICONS = {
   bedside_monitor: Activity,
@@ -133,6 +138,13 @@ export default function StudyAiExamPage() {
   const [introTrigger, setIntroTrigger] = useState(0);
   const [activeDrawerId, setActiveDrawerId] = useState(null);
   const [drawerMinimized, setDrawerMinimized] = useState(false);
+  const [wristbandArtifactOpen, setWristbandArtifactOpen] = useState(true);
+
+  useEffect(() => {
+    if (activeDrawerId === 'wristband') {
+      setWristbandArtifactOpen(true);
+    }
+  }, [activeDrawerId]);
   const [inspectedStations, setInspectedStations] = useState([]);
   const [clin, setClin] = useState(initialClinicalState);
   const [examElapsed, setExamElapsed] = useState(0);
@@ -1375,6 +1387,17 @@ export default function StudyAiExamPage() {
             </div>
           </div>
 
+          {/* 3D ROTATING WRISTBAND ARTIFACT INSPECTOR (triggers alongside the Patient Wrist sidebar) */}
+          {activeDrawerId === 'wristband' && wristbandArtifactOpen && (
+            <WristbandArtifactInspector
+              patient={scenarioData.patient}
+              verifiedId={clin.verifiedId}
+              onVerifyId={handleVerifyId}
+              onClose={() => setWristbandArtifactOpen(false)}
+              isMobile={isPhone}
+            />
+          )}
+
           {/* STATION PANEL (opens once the nurse arrives at the bedside station) */}
           {activeDrawerId && (
             <DraggableGlassPanel
@@ -1414,6 +1437,8 @@ export default function StudyAiExamPage() {
                 onDocumentVitals={handleDocumentVitals}
                 verifiedId={clin.verifiedId}
                 onVerifyId={handleVerifyId}
+                wristbandArtifactOpen={wristbandArtifactOpen}
+                onOpenWristbandArtifact={() => setWristbandArtifactOpen(true)}
                 activeEhrTab={clin.activeEhrTab}
                 onSelectEhrTab={viewEhrTab}
                 allergyFlagged={clin.allergyFlagged}

@@ -1193,7 +1193,7 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
   return (
     <group>
       {/* Surrounding floor plane (offset well below vinyl sheet to eliminate z-fighting) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.025, 0]} receiveShadow onClick={onFloorClick}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.025, 0]} receiveShadow raycast={() => {}}>
         <planeGeometry args={[40, 40]} />
         <meshStandardMaterial color={theme.outerFloor} roughness={0.88} />
       </mesh>
@@ -1203,7 +1203,7 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
         rotation={[-Math.PI / 2, 0, 0]}
         position={[(ROOM.minX + ROOM.maxX) / 2, 0, (ROOM.minZ + ROOM.maxZ) / 2]}
         receiveShadow
-        onClick={onFloorClick}
+        raycast={() => {}}
       >
         <planeGeometry args={[roomW, roomD]} />
         <meshStandardMaterial
@@ -1220,7 +1220,7 @@ export default function HospitalRoom({ darkMode = false, monitorConnected = true
         rotation={[-Math.PI / 2, 0, 0]}
         position={[ROOM.minX + 0.65, 0.004, 3.45]}
         receiveShadow
-        onClick={onFloorClick}
+        raycast={() => {}}
       >
         <planeGeometry args={[1.3, 1.35]} />
         <meshStandardMaterial

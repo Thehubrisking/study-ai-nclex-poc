@@ -937,14 +937,7 @@ function NurseAvatar3D({
     <group
       ref={groupRef}
       position={[0.25, 0, 2.35]}
-      onClick={stop(() => onToggleScrubStyle?.())}
     >
-      {/* 12-triangle zero-overdraw hitbox for clicking Nurse Daniel to cycle scrub palettes */}
-      <mesh position={[0, 0.88, 0]}>
-        <boxGeometry args={[0.42, 1.76, 0.34]} />
-        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
-      </mesh>
-
       {/* Ambient torso ground shadow + dual shoe-sole contact AO */}
       <mesh
         ref={blobRef}
@@ -1394,7 +1387,7 @@ function InteractiveBedSideRail({ side, isUp, geometry, baseMaterial, frozen, on
         </group>
       ))}
 
-      {/* Moving split side-rail assembly */}
+      {/* Moving split side-rail assembly — triggered ONLY by clicking its dedicated marker pin */}
       <group ref={railGroupRef} position={[sideSign * (isUp ? 0 : 0.022), isUp ? 0 : -0.305, isUp ? 0 : 0.128]}>
         {geometry && (
           <mesh
@@ -1402,48 +1395,74 @@ function InteractiveBedSideRail({ side, isUp, geometry, baseMaterial, frozen, on
             material={railMaterial}
             castShadow
             receiveShadow
-            onClick={handleClick}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              if (!frozen) setHovered(true);
-            }}
-            onPointerOut={() => setHovered(false)}
+            raycast={() => {}}
           />
         )}
 
-        {/* Generous invisible hit-box along the entire rail length so clicking between tubes never misses */}
-        <mesh
-          position={[sideSign * 0.577, 1.075, 0]}
-          onClick={handleClick}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            if (!frozen) setHovered(true);
-          }}
-          onPointerOut={() => setHovered(false)}
-        >
-          <boxGeometry args={[0.11, 0.43, 2.34]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        </mesh>
-
-        {/* Minimalist contextual action label shown ONLY while pointer hovers directly on the 3D rail */}
-        {hovered && !frozen && (
-          <Html position={[sideSign * 0.58, 1.32, 0]} center zIndexRange={[22, 0]}>
-            <div
+        {/* Dedicated spoiler-free Side Rail Marker Pin */}
+        {!frozen && (
+          <Html position={[sideSign * 0.58, 1.18, 0.05]} center zIndexRange={[20, 0]}>
+            <button
+              type="button"
+              onClick={handleClick}
+              onMouseEnter={() => setHovered(true)}
+              onMouseLeave={() => setHovered(false)}
               style={{
-                pointerEvents: 'none',
-                padding: '4px 11px',
-                borderRadius: '999px',
-                background: 'rgba(10, 19, 16, 0.92)',
-                border: '1px solid #6fd1a9',
-                color: '#eaf2ee',
-                fontSize: '11px',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                boxShadow: '0 6px 16px rgba(0,0,0,0.4)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '4px',
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                transform: hovered ? 'scale(1.1)' : 'scale(1)',
+                transition: 'transform 0.15s ease',
+                fontFamily: 'inherit',
               }}
             >
-              {isUp ? 'Lower side rail' : 'Raise side rail'}
-            </div>
+              <span
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '50%',
+                  background: isUp
+                    ? 'rgba(78, 138, 114, 0.18)'
+                    : 'rgba(111, 209, 169, 0.16)',
+                  border: `2px solid ${isUp ? '#4e8a72' : '#6fd1a9'}`,
+                  boxShadow: '0 0 0 3px rgba(111, 209, 169, 0.10), 0 6px 16px rgba(10, 19, 16, 0.4)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <span
+                  style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    background: isUp ? '#4e8a72' : '#6fd1a9',
+                  }}
+                />
+              </span>
+              {hovered && (
+                <span
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: '999px',
+                    background: 'rgba(10, 19, 16, 0.92)',
+                    border: '1px solid #6fd1a9',
+                    color: '#eaf2ee',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 6px 16px rgba(0,0,0,0.4)',
+                  }}
+                >
+                  Side Rail
+                </span>
+              )}
+            </button>
           </Html>
         )}
       </group>
@@ -1684,8 +1703,6 @@ function HospitalBedGLB({
     }
   });
 
-  const selectBed = stop(() => onSelectObject('hospital_bed'));
-
   // Register the bed's measured floor footprint as a navigation obstacle (nurse walks around it)
   useEffect(() => {
     fittedBed.updateWorldMatrix(true, true);
@@ -1701,12 +1718,7 @@ function HospitalBedGLB({
   }, [fittedBed]);
 
   return (
-    <group onClick={selectBed}>
-      {/* 12-triangle zero-overdraw hitbox for clicking the hospital bed frame/mattress */}
-      <mesh position={[0, 0.62, 0]}>
-        <boxGeometry args={[1.02, 0.68, 2.32]} />
-        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
-      </mesh>
+    <group>
       <primitive object={fittedBed} />
 
       {/* Weight-depressed quilted hospital bed pad + contact AO troughs under pelvis, calves, and heels */}
@@ -1925,18 +1937,23 @@ function PatientAndWristband({
     materials.current = skinMats.length > 0 ? skinMats : allMats;
     bonesRef.current = bmap;
 
-    // Pose all 30 AccuRIG finger phalanx bones into a natural relaxed bedside hand posture once at mount
+    // Pose all 30 AccuRIG finger phalanx bones along the true knuckle hinge axis (`uk = [0.461, -0.384, -0.800]`)
+    // so when the hand is pronated palm-down on the bed, the fingers & thumb drape softly onto the sheet!
     ['L', 'R'].forEach((side) => {
-      const sgn = side === 'L' ? -1 : 1;
+      const m = side === 'L' ? 1 : -1;
       ['Index', 'Mid', 'Ring', 'Pinky'].forEach((f, fi) => {
-        const cascade = 1 + fi * 0.08;
-        setNurseCharRotation(bmap[`CC_Base_${side}_${f}1`], 0.24 * cascade, 0, 0.26 * sgn * cascade);
-        setNurseCharRotation(bmap[`CC_Base_${side}_${f}2`], 0.32 * cascade, 0, 0.34 * sgn * cascade);
-        setNurseCharRotation(bmap[`CC_Base_${side}_${f}3`], 0.22 * cascade, 0, 0.24 * sgn * cascade);
+        const cas = 1 + fi * 0.06;
+        const t1 = -0.12;
+        const t2 = 0.16 * cas;
+        const t3 = 0.08 * cas;
+        setNurseCharRotation(bmap[`CC_Base_${side}_${f}1`], 0.461 * t1, -0.384 * t1 * m, -0.8 * t1 * m);
+        setNurseCharRotation(bmap[`CC_Base_${side}_${f}2`], 0.461 * t2, -0.384 * t2 * m, -0.8 * t2 * m);
+        setNurseCharRotation(bmap[`CC_Base_${side}_${f}3`], 0.461 * t3, -0.384 * t3 * m, -0.8 * t3 * m);
       });
-      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb1`], 0.18, -0.15 * sgn, 0.16 * sgn);
-      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb2`], 0.22, 0, 0.18 * sgn);
-      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb3`], 0.16, 0, 0.14 * sgn);
+      // Tuck thumb naturally beside the index finger with palmar pad resting gently on the sheet
+      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb1`], -0.14, 0.28 * m, -0.22 * m);
+      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb2`], 0.06, 0.12 * m, -0.08 * m);
+      setNurseCharRotation(bmap[`CC_Base_${side}_Thumb3`], 0.04, 0.08 * m, -0.05 * m);
     });
   }, [scene]);
 
@@ -1973,11 +1990,12 @@ function PatientAndWristband({
     const isDistressed = live.spo2 < 92 && !isBradypneic;
     const breathAmp = isBradypneic ? 0.014 : isDistressed ? 0.045 : 0.028;
 
+    // Patient's head rests turned naturally toward his LEFT side (+ry in Character Space)
     const headRestlessYaw = isBradypneic
-      ? -0.22
+      ? 0.62
       : isDistressed
-        ? -0.06 + Math.sin(elapsed * 1.45) * 0.14
-        : -0.05 + Math.sin(elapsed * 0.45) * 0.04;
+        ? 0.52 + Math.sin(elapsed * 1.45) * 0.1
+        : 0.48 + Math.sin(elapsed * 0.45) * 0.035;
     const spasm = isDistressed ? (Math.sin(elapsed * 2.9) + 1) * 0.5 : 0;
 
     setNurseCharRotation(B.CC_Base_Waist, elevRad * 0.34, 0, 0);
@@ -1993,18 +2011,18 @@ function PatientAndWristband({
     setNurseCharRotation(B.CC_Base_L_Clavicle, -0.04 + breath * breathAmp * 0.35, 0.05, -0.06);
     setNurseCharRotation(B.CC_Base_R_Clavicle, -0.04 + breath * breathAmp * 0.35, -0.05, 0.06);
 
-    // Neck & head sink gently BACKWARD into the sculpted pillow cradle (no stiff forward crunch!)
+    // Neck & head turn smoothly to the LEFT side and sink gently backward into the sculpted pillow cradle
     setNurseCharRotation(
       B.CC_Base_NeckTwist01,
-      -0.06 + elevRad * 0.04 - (isBradypneic ? 0.06 : 0),
+      -0.05 + elevRad * 0.04 - (isBradypneic ? 0.04 : 0),
       headRestlessYaw * 0.55,
-      isBradypneic ? -0.11 : 0.04
+      isBradypneic ? 0.09 : 0.06
     );
     setNurseCharRotation(
       B.CC_Base_Head,
-      -0.04 + elevRad * 0.05 - breath * 0.02,
+      -0.03 + elevRad * 0.04 - breath * 0.02,
       headRestlessYaw * 0.45,
-      0.035
+      0.05
     );
 
     // 3. Softened brow, heavy post-op resting eyelids, natural human blinks & calm eye micro-gaze
@@ -2055,24 +2073,48 @@ function PatientAndWristband({
       setNurseCharRotation(B.CC_Base_JawRoot, jawOpen, 0, 0);
     }
 
-    // 4. Natural, slightly asymmetric relaxed bedside arms & hands (zero robotic symmetry, zero bed clipping)
+    // 4. Pronated, palm-down forearms & hands resting flush and relaxed on the quilted bed pad across 0-60 deg Fowler's
     setNurseCharRotation(
       B.CC_Base_L_Upperarm,
-      0.04 - elevRad * 0.34,
-      -0.08,
-      -0.46
+      0.12 - elevRad * 0.098,
+      -0.234,
+      -0.373 - elevRad * 0.005
     );
-    setNurseCharRotation(B.CC_Base_L_Forearm, 0.50 - elevRad * 0.06 - breath * 0.018, 0.16, -0.08);
-    setNurseCharRotation(B.CC_Base_L_Hand, 0.08, 0.06, -0.05);
+    setNurseCharRotation(
+      B.CC_Base_L_Forearm,
+      0.887 - elevRad * 0.372 - breath * 0.01,
+      -0.407 - elevRad * 0.095,
+      -0.027 + elevRad * 0.255
+    );
+    setNurseCharRotation(B.CC_Base_L_ForearmTwist01, 0.11, -0.05, 0.15);
+    setNurseCharRotation(B.CC_Base_L_ForearmTwist02, 0.12, -0.05, 0.16);
+    setNurseCharRotation(
+      B.CC_Base_L_Hand,
+      0.238 - elevRad * 0.07,
+      -0.058 - elevRad * 0.01,
+      0.364 + elevRad * 0.084
+    );
 
     setNurseCharRotation(
       B.CC_Base_R_Upperarm,
-      0.06 - elevRad * 0.34,
-      0.05,
-      0.43
+      0.115 - elevRad * 0.098,
+      0.225,
+      0.358 + elevRad * 0.005
     );
-    setNurseCharRotation(B.CC_Base_R_Forearm, 0.46 - elevRad * 0.06 - breath * 0.018, -0.10, 0.06);
-    setNurseCharRotation(B.CC_Base_R_Hand, 0.08, -0.05, 0.04);
+    setNurseCharRotation(
+      B.CC_Base_R_Forearm,
+      0.855 - elevRad * 0.365 - breath * 0.01,
+      0.395 + elevRad * 0.095,
+      0.025 - elevRad * 0.25
+    );
+    setNurseCharRotation(B.CC_Base_R_ForearmTwist01, 0.11, 0.05, -0.15);
+    setNurseCharRotation(B.CC_Base_R_ForearmTwist02, 0.12, 0.05, -0.16);
+    setNurseCharRotation(
+      B.CC_Base_R_Hand,
+      0.235 - elevRad * 0.07,
+      0.058 + elevRad * 0.01,
+      -0.358 - elevRad * 0.084
+    );
 
     // 5. Relaxed knees, natural external hip turnout, plantarflexed ankles & toes nestled in bed depressions
     const legShift = isDistressed ? Math.sin(elapsed * 1.15) * 0.032 : Math.sin(elapsed * 0.32) * 0.008;
@@ -2106,15 +2148,17 @@ function PatientAndWristband({
     if (B.CC_Base_L_Hand && leftWristRef.current?.parent) {
       B.CC_Base_L_Hand.updateWorldMatrix(true, false);
       B.CC_Base_L_Hand.getWorldPosition(_headPos);
-      _headPos.y += 0.015;
-      _headPos.z -= 0.015;
+      _headPos.x += 0.004;
+      _headPos.y += 0.002;
+      _headPos.z -= 0.024;
       leftWristRef.current.parent.worldToLocal(leftWristRef.current.position.copy(_headPos));
     }
     if (B.CC_Base_R_Hand && rightHandIvRef.current?.parent) {
       B.CC_Base_R_Hand.updateWorldMatrix(true, false);
       B.CC_Base_R_Hand.getWorldPosition(_headPos);
-      _headPos.y += 0.022;
-      _headPos.z += 0.02;
+      _headPos.x += 0.018;
+      _headPos.y += 0.016;
+      _headPos.z += 0.052;
       rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_headPos));
     }
   });
@@ -2126,18 +2170,8 @@ function PatientAndWristband({
 
   return (
     <group>
-      {/* Rigged AccuRIG 3D Patient Model + 12-triangle instant click hitbox */}
-      <group
-        position={[0, 1.178, -0.05]}
-        onClick={stop(() => {
-          onSelectObject('wristband');
-          speakPatientCue(verbalState.text, false);
-        })}
-      >
-        <mesh position={[0, 0.08, 0.0]}>
-          <boxGeometry args={[0.58, 0.3, 1.85]} />
-          <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
-        </mesh>
+      {/* Rigged AccuRIG 3D Patient Model (nurse movement triggered strictly via station markers) */}
+      <group position={[0, 1.178, -0.05]}>
         <group rotation={[-Math.PI / 2, 0, 0]}>
           <group scale={PATIENT_SCALE} position={[0, -0.89 * PATIENT_SCALE, 0]}>
             <primitive object={scene} />
@@ -2220,10 +2254,10 @@ function PatientAndWristband({
         )}
       </group>
 
-      {/* Procedural IV Cannula on Patient's Right Hand */}
-      <group ref={rightHandIvRef} position={[-0.365, 1.155, -0.13]}>
+      {/* Procedural IV Cannula on Dorsum (Back) of Patient's Pronated Right Hand */}
+      <group ref={rightHandIvRef} position={[-0.295, 1.188, -0.04]} rotation={[0, 0.16, 0]}>
         <mesh>
-          <boxGeometry args={[0.055, 0.006, 0.07]} />
+          <boxGeometry args={[0.048, 0.005, 0.062]} />
           <meshStandardMaterial
             color="#eef1f4"
             transparent
@@ -2231,25 +2265,33 @@ function PatientAndWristband({
             roughness={0.9}
           />
         </mesh>
-        <mesh position={[0, 0.012, 0.01]} rotation={[0.5, 0, 0]}>
-          <cylinderGeometry args={[0.008, 0.009, 0.04, 12]} />
+        <mesh position={[0, 0.009, -0.008]} rotation={[Math.PI / 2 - 0.12, 0, 0]}>
+          <cylinderGeometry args={[0.007, 0.008, 0.036, 12]} />
           <meshStandardMaterial color="#38bdf8" roughness={0.4} metalness={0.2} />
         </mesh>
       </group>
 
-      {/* Interactive Patient ID Wristband on Patient's Left Wrist */}
+      {/* Patient ID Wristband + Red Allergy Alert Band Wrapping Around Pronated Left Wrist */}
       <group
         ref={leftWristRef}
-        position={[0.405, 1.16, -0.17]}
-        onClick={stop(() => onSelectObject('wristband'))}
+        position={[0.31, 1.174, -0.12]}
       >
-        <mesh rotation={[0.32, 0.1, 0]} castShadow>
-          <torusGeometry args={[0.044, 0.011, 12, 24]} />
+        <mesh rotation={[0.06, -0.14, 0]} castShadow>
+          <torusGeometry args={[0.039, 0.008, 12, 24]} />
           <meshStandardMaterial
-            color={verifiedId ? '#10b981' : '#ffffff'}
+            color={verifiedId ? '#d1fae5' : '#f8fafc'}
             emissive={verifiedId ? '#10b981' : '#38bdf8'}
-            emissiveIntensity={verifiedId ? 1.4 : 0.9}
-            toneMapped={false}
+            emissiveIntensity={verifiedId ? 0.9 : 0.35}
+            roughness={0.38}
+          />
+        </mesh>
+        <mesh position={[0.003, 0, -0.017]} rotation={[0.06, -0.14, 0]}>
+          <torusGeometry args={[0.04, 0.0055, 10, 24]} />
+          <meshStandardMaterial
+            color="#dc2626"
+            emissive="#991b1b"
+            emissiveIntensity={0.35}
+            roughness={0.42}
           />
         </mesh>
       </group>
@@ -2522,12 +2564,7 @@ function BedsideMonitor3D({
     <group
       position={[1.6, 0, -0.7]}
       rotation={[0, Math.PI, 0]}
-      onClick={stop(() => onSelectObject('bedside_monitor'))}
     >
-      <mesh position={[0, 0.95, 0]}>
-        <boxGeometry args={[0.55, 1.9, 0.48]} />
-        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
-      </mesh>
       <primitive object={fitted} />
 
       {/* Live Emissive ICU Waveform Screen mounted on the 3D monitor face */}
@@ -2633,7 +2670,7 @@ function WallOxygenPanel3D({
         <primitive object={fittedVent} />
       </group>
 
-    <group onClick={stop(() => onSelectObject('wall_oxygen'))}>
+    <group>
       {/* Outlet adapter (DISS quick-connect) from the headwall O2 outlet */}
       <mesh position={[x, 1.5, z - 0.02]} rotation={[Math.PI / 2, 0, 0]} castShadow>
         <cylinderGeometry args={[0.016, 0.016, 0.06, 16]} />
@@ -2738,12 +2775,7 @@ function IvPumpPole3D({
     <group
       position={IV_POLE_POS}
       rotation={[0, Math.PI, 0]}
-      onClick={stop(() => onSelectObject('iv_pump'))}
     >
-      <mesh position={[0.1, 1.2, 0]}>
-        <boxGeometry args={[0.48, 2.35, 0.42]} />
-        <meshBasicMaterial colorWrite={false} depthWrite={false} transparent opacity={0} />
-      </mesh>
       <primitive object={fittedPole} />
 
       {/* Mounted Morphine PCA Infusion Pump Unit on Pole */}
@@ -2873,7 +2905,6 @@ function EhrWorkstationCart3D({
     <group
       position={[1.85, 0, 0.55]}
       rotation={[0, -0.55, 0]}
-      onClick={stop(() => onSelectObject('ehr_tablet'))}
     >
       <RoundedBox
         args={[0.44, 0.06, 0.44]}
@@ -2959,9 +2990,9 @@ function SplineTube({
 
 /** O2 mask attachment point (world) at 0° / 30° / 60° head-of-bed, measured from AccuRIG CC_Base_Head. */
 const MASK_AT_ANGLE = [
-  [0, [0.0, 1.345, -0.88]],
-  [30, [0.0, 1.58, -0.71]],
-  [60, [0.0, 1.715, -0.445]],
+  [0, [0.09, 1.325, -0.87]],
+  [30, [0.09, 1.56, -0.7]],
+  [60, [0.09, 1.695, -0.435]],
 ];
 function maskPointForAngle(deg) {
   const a = THREE.MathUtils.clamp(deg, 0, 60);
@@ -3031,9 +3062,9 @@ function ClinicalTubes({ o2Device, pcaPaused, monitorConnected = true, bedAngle 
         points={[
           [-0.85, 1.79, -0.12],
           [-0.76, 1.42, -0.08],
-          [-0.6, 1.17, -0.12],
-          [-0.46, 1.13, -0.14],
-          [-0.34, 1.14, -0.14],
+          [-0.6, 1.18, -0.10],
+          [-0.44, 1.16, -0.07],
+          [-0.295, 1.192, -0.05],
         ]}
       />
     </group>
@@ -3185,19 +3216,6 @@ const Room3D = React.memo(function Room3D({
 
   const bgColor = darkMode ? '#070c17' : '#e6ebf1';
 
-  const handleFloorClick = (e) => {
-    e.stopPropagation();
-    if (frozen) return;
-    const pt = e.point;
-    if (!pt) return;
-    if (selectedObjectId) onNurseDepart?.();
-    const free = nearestFree(pt.x, pt.z);
-    nurseStateRef.current.goalPos.set(free.x, 0, free.z);
-    nurseStateRef.current.lookTarget.set(0, 1.15, -0.2);
-    nurseStateRef.current.pendingRailSide = null;
-    nurseStateRef.current.manualWalk = true;
-  };
-
   const handleSideRailClick = (side) => {
     if (frozen) return;
     if (selectedObjectId) onNurseDepart?.();
@@ -3282,7 +3300,6 @@ const Room3D = React.memo(function Room3D({
           <HospitalRoom
             darkMode={darkMode}
             monitorConnected={monitorConnected}
-            onFloorClick={handleFloorClick}
           />
 
           {/* 0. ActorCore Rigged RN Nurse Avatar */}
