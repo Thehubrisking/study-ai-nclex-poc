@@ -2490,17 +2490,19 @@ function PatientAndWristband({
       }
     }
 
-    // Track left index finger pulse-oximeter clamshell clip (`13.8mm` finger radius at 1.18x) & chest V-collar ECG lead port
+    // Track left index distal fingertip pulse-oximeter clamshell clip (beyond L_Index3 nailbed!) & chest V-collar ECG lead port
     if (spo2FingerClipRef.current?.parent && B.CC_Base_L_Index2 && B.CC_Base_L_Index3) {
       B.CC_Base_L_Index2.updateWorldMatrix(true, false);
       B.CC_Base_L_Index3.updateWorldMatrix(true, false);
       B.CC_Base_L_Index2.getWorldPosition(_knuckleWorld);
       B.CC_Base_L_Index3.getWorldPosition(_fingerTipWorld);
-      _bZ.subVectors(_knuckleWorld, _fingerTipWorld).normalize();
+      // Point +Z_local distally out the fingertip so the SpO2 cable exits cleanly from the fingertip cap toward the bedside monitor!
+      _bZ.subVectors(_fingerTipWorld, _knuckleWorld).normalize();
       _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
       _bX.crossVectors(_bY, _bZ).normalize();
       _bY.crossVectors(_bZ, _bX).normalize();
-      _headPos.lerpVectors(_knuckleWorld, _fingerTipWorld, 0.72).addScaledVector(_bY, 0.003);
+      // L_Index3 is the base of the distal phalanx; step +18mm distally onto the actual fingertip nailbed & +6mm dorsally
+      _headPos.copy(_fingerTipWorld).addScaledVector(_bZ, 0.018).addScaledVector(_bY, 0.006);
       spo2FingerClipRef.current.parent.worldToLocal(spo2FingerClipRef.current.position.copy(_headPos));
       _basisMat.makeBasis(_bX, _bY, _bZ);
       _worldQuat.setFromRotationMatrix(_basisMat);
@@ -3995,21 +3997,17 @@ function buildCatenaryControlPoints(a, b, mode) {
       b.clone(),
     ];
   }
-  // Monitor side trunk port -> graceful bedside drape -> patient finger clip or gown neckline
-  const lowY = Math.min(a.y, b.y) - 0.08;
+  // Monitor side trunk port -> graceful bedside drape -> patient fingertip cap or gown neckline (never cutting through fingers)
+  const lowY = Math.min(a.y, b.y) - 0.075;
   return [
     a.clone(),
     new THREE.Vector3(a.x - 0.055, a.y - 0.025, a.z + 0.015),
     new THREE.Vector3(
-      THREE.MathUtils.lerp(a.x, b.x, 0.42),
+      THREE.MathUtils.lerp(a.x, b.x, 0.45),
       lowY,
-      THREE.MathUtils.lerp(a.z, b.z, 0.42) + 0.04
+      THREE.MathUtils.lerp(a.z, b.z, 0.45) + 0.055
     ),
-    new THREE.Vector3(
-      THREE.MathUtils.lerp(a.x, b.x, 0.78),
-      b.y + 0.018,
-      THREE.MathUtils.lerp(a.z, b.z, 0.78) + 0.02
-    ),
+    new THREE.Vector3(b.x + 0.032, b.y + 0.006, b.z + 0.038),
     b.clone(),
   ];
 }
