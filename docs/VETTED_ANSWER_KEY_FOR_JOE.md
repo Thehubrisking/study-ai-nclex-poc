@@ -11,8 +11,9 @@
 
 | Parameter | Value / Clinical Cue | NCLEX Teaching Point |
 |---|---|---|
-| **Patient** | John Doe, 62M, DOB `1963-09-14`, MRN `MRN-88412` | Two-identifier wristband check required before interventions |
+| **Patient** | John Doe, 62M, DOB `1963-09-14`, MRN `MRN-88412` | Two-identifier 3D barcode wristband check (+ rear crimson Penicillin allergy clasp) required before interventions |
 | **Procedure** | 4 hours post-exploratory laparotomy for small-bowel obstruction | High risk for Day-0 surgical-site hemorrhage and opioid hypoventilation |
+| **Respiratory & Skin Cue** | Live-action bedside deterioration clip (`hypoxia_distress_deterioration.mp4`) + interactive 3D Patient Cue Inspector | Candidate observes real-world dark-skin diaphoretic brow sweat, heavy drooping/fluttering opioid-sedated lids, pale perioral mucosa & shallow open-mouth gasping (zero artificial blue tint) |
 | **Abdominal Video Cue** | Unlabeled live bedside abdominal video (`jp_drain_hemorrhage.mp4`): midline gauze strikethrough + RLQ Jackson-Pratt (JP) bulb drain + LUQ Gastrostomy (G-tube) | Candidate observes and identifies the condition independently without diagnostic labels (`135 mL/hr` sanguineous output revealed after measuring) |
 | **3D Bedside Safety** | Directly interactive 3D left & right bed side rails (`hospital_bed_carlos.glb`) | Candidate visually identifies lowered transfer rails and clicks them in 3D to raise & lock |
 | **Initial Telemetry** | `SpO2 88%` · `RR 10/min` · `HR 122 bpm` · `BP 92/58 mmHg` · `EtCO2 54 mmHg` · `Temp 36.6°C` | Dual pathology: **Opioid Respiratory Depression** + **Postoperative Hemorrhage** |
