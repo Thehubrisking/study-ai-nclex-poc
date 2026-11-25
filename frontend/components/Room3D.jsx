@@ -2064,10 +2064,9 @@ function PatientAndWristband({
     // 1. Subtle natural pallor & diaphoretic skin moisture (zero artificial blue emissive cast on dark skin!)
     const t = THREE.MathUtils.clamp((94 - live.spo2) / 14, 0, 1);
     const pallor = crystalloidBolus ? 0.02 : hemorrhageShock ? 0.08 : 0.04;
-    const isBradypneic = live.rr <= 10;
+    const isBradypneic = live.rr <= 9;
     const videoDistressActive =
-      (Boolean(distressEmoteVisible) || isBradypneic || hemorrhageShock) &&
-      vitals?.patient_status !== 'STABILIZED';
+      Boolean(distressEmoteVisible) && vitals?.patient_status !== 'STABILIZED';
     distressUniformRef.current.value = THREE.MathUtils.lerp(
       distressUniformRef.current.value,
       videoDistressActive ? 1.0 : 0.0,

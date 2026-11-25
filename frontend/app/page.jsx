@@ -370,35 +370,20 @@ export default function StudyAiExamPage() {
       if (distressEmoteActive) setDistressEmoteActive(false);
       if (distressPopoverVisible) setDistressPopoverVisible(false);
       if (distressInspectorOpen) setDistressInspectorOpen(false);
-    } else {
-      if (
-        !distressAlertedStagesRef.current.early &&
-        t >= 12 &&
-        (vitals.spo2 < 92 || vitals.rr <= 12)
-      ) {
-        distressAlertedStagesRef.current.early = true;
-        setDistressEmoteActive(true);
-        if (activeDrawerIdRef.current === 'wristband') {
-          setDistressPopoverVisible(true);
-        } else {
-          setDistressInspectorOpen(true);
-        }
-      }
-      if (
-        !distressAlertedStagesRef.current.severe &&
-        (clin.untreatedDeterioration ||
-          clin.hemorrhageShock ||
-          clin.opioidLevel === 'crash' ||
-          clin.opioidLevel === 'toxic_bolus')
-      ) {
-        distressAlertedStagesRef.current.severe = true;
-        setDistressEmoteActive(true);
-        if (activeDrawerIdRef.current === 'wristband') {
-          setDistressPopoverVisible(true);
-        } else {
-          setDistressInspectorOpen(true);
-        }
-      }
+    } else if (
+      !distressAlertedStagesRef.current.severe &&
+      (clin.untreatedDeterioration ||
+        clin.hemorrhageShock ||
+        clin.opioidLevel === 'crash' ||
+        clin.opioidLevel === 'toxic_bolus' ||
+        clin.opioidLevel === 'toxic_flush')
+    ) {
+      // Trigger ONLY when actual physiological deterioration occurs (e.g. 60s untreated hypoxia,
+      // 90s hemorrhage shock, or acute opioid crash) — and NEVER auto-pop the 3D inspector unprompted;
+      // show the bedside emote + subtle cue banner so the user opens the 3D inspector on click (like Wristband).
+      distressAlertedStagesRef.current.severe = true;
+      setDistressEmoteActive(true);
+      setDistressPopoverVisible(true);
     }
 
     if (t >= EX.duration_sec) endBedside('TIME_EXPIRED');
