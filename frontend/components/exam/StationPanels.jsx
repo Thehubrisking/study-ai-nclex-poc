@@ -304,11 +304,6 @@ export default function StationPanelBody(props) {
               Re-open 3D Rotating Wristband Artifact
             </OptionButton>
           )}
-          {props.onWatchDistressVideo && (
-            <OptionButton tk={tk} onClick={props.onWatchDistressVideo}>
-              ▶ Watch Close-Up Patient Observation Clip
-            </OptionButton>
-          )}
         </div>
         {props.verifiedId ? (
           <Note tk={tk} icon={UserCheck}>

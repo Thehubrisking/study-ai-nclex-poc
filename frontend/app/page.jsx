@@ -594,8 +594,13 @@ export default function StudyAiExamPage() {
   const activeDrawerIdRef = useRef(activeDrawerId);
   activeDrawerIdRef.current = activeDrawerId;
 
+  const cameraFocusIdRef = useRef(cameraFocusId);
+  cameraFocusIdRef.current = cameraFocusId;
+
   const handleSelectStation = useCallback((id) => {
     if (examStageRef.current !== EXAM_STAGES.BEDSIDE) return;
+    pendingDistressVideoRef.current = false;
+    setDistressVideoOpen(false);
     pendingStationRef.current = id;
     if (activeDrawerIdRef.current !== id) setActiveDrawerId(null);
     setCameraFocusId(id);
@@ -617,6 +622,13 @@ export default function StudyAiExamPage() {
     (id) => {
       if (examStageRef.current !== EXAM_STAGES.BEDSIDE || pendingStationRef.current !== id) return;
       pendingStationRef.current = null;
+      if (id === 'patient_observe') {
+        pendingDistressVideoRef.current = false;
+        setActiveDrawerId(null);
+        setWristbandArtifactOpen(false);
+        setDistressVideoOpen(true);
+        return;
+      }
       setActiveDrawerId(id);
       setDrawerMinimized(false);
       if (!inspectedRef.current.includes(id)) {
@@ -625,10 +637,6 @@ export default function StudyAiExamPage() {
         recordEvent('INSPECT_STATION', id, `Inspected ${EX.station_labels[id]}`);
       }
       if (id === 'ehr_tablet') viewEhrTab(clinRef.current.activeEhrTab);
-      if (id === 'wristband' && pendingDistressVideoRef.current) {
-        pendingDistressVideoRef.current = false;
-        setDistressVideoOpen(true);
-      }
     },
     [recordEvent, viewEhrTab]
   );
@@ -636,19 +644,20 @@ export default function StudyAiExamPage() {
   const handleInspectDistress = useCallback(() => {
     if (examStageRef.current !== EXAM_STAGES.BEDSIDE) return;
     setDistressPopoverVisible(false);
+    setActiveDrawerId(null);
+    setWristbandArtifactOpen(false);
     recordEvent(
       'OBSERVE_PATIENT_DETERIORATION_VIDEO',
-      'wristband',
+      null,
       'Observed close-up patient respiratory & diaphoresis acting clip'
     );
-    if (activeDrawerIdRef.current === 'wristband') {
-      cueNurse('wristband');
+    if (cameraFocusIdRef.current === 'patient_observe' && !pendingStationRef.current) {
+      cueNurse('patient_observe');
       setDistressVideoOpen(true);
     } else {
       pendingDistressVideoRef.current = true;
-      pendingStationRef.current = 'wristband';
-      setActiveDrawerId(null);
-      setCameraFocusId('wristband');
+      pendingStationRef.current = 'patient_observe';
+      setCameraFocusId('patient_observe');
       setCameraTrigger((t) => t + 1);
     }
   }, [cueNurse, recordEvent]);
@@ -1060,6 +1069,33 @@ export default function StudyAiExamPage() {
                     {!isPhone ? ' · PACU · Post-op' : ''}
                   </span>
                 </div>
+
+                {distressEmoteActive && !distressPopoverVisible && (
+                  <button
+                    type="button"
+                    onClick={handleInspectDistress}
+                    title="Walk nurse to patient's head & watch close-up bedside observation video"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      height: '31px',
+                      padding: '0 12px',
+                      borderRadius: '999px',
+                      background: 'rgba(232, 176, 75, 0.14)',
+                      border: '1px solid #e8b04b',
+                      color: '#fde68a',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span>😮‍💨</span>
+                    <span>{isPhone ? 'Cue ▶' : 'Observe patient ▶'}</span>
+                  </button>
+                )}
               </div>
 
               {/* RIGHT: Progress + Utility Controls + Mono Clock + Finish/Exit (Figma 36:14..36:20) */}
@@ -1527,10 +1563,6 @@ export default function StudyAiExamPage() {
                 onVerifyId={handleVerifyId}
                 wristbandArtifactOpen={wristbandArtifactOpen}
                 onOpenWristbandArtifact={() => setWristbandArtifactOpen(true)}
-                onWatchDistressVideo={() => {
-                  cueNurse('wristband');
-                  setDistressVideoOpen(true);
-                }}
                 activeEhrTab={clin.activeEhrTab}
                 onSelectEhrTab={viewEhrTab}
                 allergyFlagged={clin.allergyFlagged}

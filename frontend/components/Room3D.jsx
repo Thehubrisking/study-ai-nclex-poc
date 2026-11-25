@@ -56,6 +56,11 @@ const STATION_WAYPOINTS = {
     lookAt: [0.15, 1.18, -0.25],
     otsCam: [1.58, 1.72, 1.08],
   },
+  patient_observe: {
+    nursePos: [0.94, 0, -0.32],
+    lookAt: [0.02, 1.38, -0.82],
+    otsCam: [1.46, 1.74, 0.42],
+  },
   ehr_tablet: {
     nursePos: [1.28, 0, 1.22],
     lookAt: [1.85, 1.26, 0.55],
@@ -104,6 +109,10 @@ const CAMERA_PRESETS = {
   wristband: {
     pos: [1.45, 1.72, 1.05],
     target: [0.15, 1.2, -0.28],
+  },
+  patient_observe: {
+    pos: [1.34, 1.72, 0.36],
+    target: [0.04, 1.36, -0.80],
   },
   ehr_tablet: {
     pos: [2.6, 1.68, 1.75],
@@ -307,6 +316,7 @@ const STATION_GESTURE = {
   hospital_bed: 'ReachMid', // bed frame & side rail controls
   surgical_site: 'ReachMid', // inspect midline laparotomy dressing, JP bulb & G-tube
   wristband: 'ReachMid', // scan the patient's wristband
+  patient_observe: 'Inspect', // lean in near head/pillow to observe patient breathing & skin cues
   ehr_tablet: 'ReachMid', // workstation keyboard / screen
 };
 const _footWorld = new THREE.Vector3();
@@ -768,7 +778,9 @@ function NurseAvatar3D({
       cameraFocusId === 'iv_pump' ||
       cameraFocusId === 'wall_oxygen';
     const isBedsideStation =
-      cameraFocusId === 'wristband' || cameraFocusId === 'hospital_bed';
+      cameraFocusId === 'wristband' ||
+      cameraFocusId === 'hospital_bed' ||
+      cameraFocusId === 'patient_observe';
 
     // ---------- 1. Mocap state machine (ActorCore clips retargeted onto the CC_Base rig) ----------
     const mixer = mixerRef.current;

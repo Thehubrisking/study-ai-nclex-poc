@@ -4,8 +4,8 @@ import React, { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Volume2, VolumeX, X, Eye } from 'lucide-react';
 
-export const DETERIORATION_VIDEO_URL = '/clinical-media/hypoxia_distress_deterioration.mp4?v=cinema1';
-export const DETERIORATION_POSTER_URL = '/clinical-media/hypoxia_distress_poster.jpg?v=cinema1';
+export const DETERIORATION_VIDEO_URL = '/clinical-media/hypoxia_distress_deterioration.mp4?v=omni_live1';
+export const DETERIORATION_POSTER_URL = '/clinical-media/hypoxia_distress_poster.jpg?v=omni_live1';
 
 /**
  * Non-blocking Screen Pop-Over Emote Toast that alerts the candidate when subtle bedside
