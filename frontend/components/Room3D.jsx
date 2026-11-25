@@ -2402,32 +2402,51 @@ function PatientAndWristband({
       }
     }
 
-    // Concentrically align the 3D Wristband Artifact around the patient's left distal forearm (`elbow -> wrist`)
-    // with the printed thermal barcode label facing dorsally UPWARD across all 0-60 deg bed angles!
+    // Concentrically align the 3D Wristband Artifact around the patient's left distal wrist (`PATIENT_SCALE = 1.18`)
+    // using anatomical knuckle width (`L_Index1 - L_Pinky1`) so the wide axis matches wrist width and printed label faces dorsally UP!
     if (B.CC_Base_L_Hand && B.CC_Base_L_Forearm && leftWristRef.current?.parent) {
       B.CC_Base_L_Forearm.updateWorldMatrix(true, false);
       B.CC_Base_L_Hand.updateWorldMatrix(true, false);
       B.CC_Base_L_Forearm.getWorldPosition(_elbowWorld);
       B.CC_Base_L_Hand.getWorldPosition(_wristWorld);
 
-      _headPos.lerpVectors(_wristWorld, _elbowWorld, 0.12);
-      _headPos.y += 0.002;
+      // Orthonormal anatomical wrist basis: +Y_band up forearm, +X_band across wrist width, +Z_band dorsal up
+      _bY.subVectors(_elbowWorld, _wristWorld).normalize();
+      if (B.CC_Base_L_Index1 && B.CC_Base_L_Pinky1) {
+        B.CC_Base_L_Index1.updateWorldMatrix(true, false);
+        B.CC_Base_L_Pinky1.updateWorldMatrix(true, false);
+        B.CC_Base_L_Index1.getWorldPosition(_knuckleWorld);
+        B.CC_Base_L_Pinky1.getWorldPosition(_fingerTipWorld);
+        _bX.subVectors(_knuckleWorld, _fingerTipWorld);
+        _bX.addScaledVector(_bY, -_bX.dot(_bY));
+        if (_bX.lengthSq() > 1e-6) _bX.normalize();
+        else _bX.set(1, 0, 0);
+        _bZ.crossVectors(_bX, _bY).normalize();
+        // Flip both X and Z together (180 deg rotation around Y, det=+1 so label text is NEVER mirrored!) if dorsal Z faces down
+        if (_bZ.y < 0) {
+          _bX.negate();
+          _bZ.negate();
+        }
+      } else {
+        _bZ.set(0, 1, 0).addScaledVector(_bY, -_bY.y);
+        if (_bZ.lengthSq() < 1e-5) _bZ.set(0, 0, 1);
+        else _bZ.normalize();
+        _bX.crossVectors(_bY, _bZ).normalize();
+        _bZ.crossVectors(_bX, _bY).normalize();
+      }
+
+      // Center at distal wrist crease (7.5% toward elbow) + +5.5mm dorsal bias matching measured wrist mesh [-31mm, +43mm]
+      _headPos.lerpVectors(_wristWorld, _elbowWorld, 0.075);
+      _headPos.addScaledVector(_bZ, 0.0055);
       leftWristRef.current.parent.worldToLocal(leftWristRef.current.position.copy(_headPos));
 
-      // Orthonormal basis: +Y_band up the forearm toward elbow, +Z_band dorsal up, +X_band across wrist width
-      _bY.subVectors(_elbowWorld, _wristWorld).normalize();
-      _bZ.set(0, 1, 0).addScaledVector(_bY, -_bY.y);
-      if (_bZ.lengthSq() < 1e-5) _bZ.set(0, 0, 1);
-      else _bZ.normalize();
-      _bX.crossVectors(_bY, _bZ).normalize();
-      _bZ.crossVectors(_bX, _bY).normalize();
       _basisMat.makeBasis(_bX, _bY, _bZ);
       _worldQuat.setFromRotationMatrix(_basisMat);
       leftWristRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
       leftWristRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
     }
 
-    // Seat the Tegaderm IV Cannula & Hub flush onto the dorsal metacarpal surface of the pronated right hand
+    // Seat the Tegaderm IV Cannula & Hub flush ON TOP OF the dorsal metacarpal skin (`+30.5mm` above bone line at 1.18x scale)
     if (B.CC_Base_R_Hand && rightHandIvRef.current?.parent) {
       B.CC_Base_R_Hand.updateWorldMatrix(true, false);
       B.CC_Base_R_Hand.getWorldPosition(_wristWorld);
@@ -2436,13 +2455,28 @@ function PatientAndWristband({
         B.CC_Base_R_Forearm.updateWorldMatrix(true, false);
         B.CC_Base_R_Mid1.getWorldPosition(_knuckleWorld);
         B.CC_Base_R_Forearm.getWorldPosition(_elbowWorld);
-        _headPos.lerpVectors(_wristWorld, _knuckleWorld, 0.52);
-        // Outward dorsal lift along surface normal; +Z_local of IV dressing points proximally toward elbow/IV pole!
-        _bZ.subVectors(_elbowWorld, _wristWorld).normalize();
-        _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
-        _bX.crossVectors(_bY, _bZ).normalize();
-        _bY.crossVectors(_bZ, _bX).normalize();
-        _headPos.addScaledVector(_bY, 0.011);
+        _headPos.lerpVectors(_wristWorld, _knuckleWorld, 0.46);
+        // +Z_local points proximally from knuckles -> wrist -> IV pole; +Y_local points dorsally UP out of back of hand!
+        _bZ.subVectors(_wristWorld, _knuckleWorld).normalize();
+        if (B.CC_Base_R_Index1 && B.CC_Base_R_Pinky1) {
+          B.CC_Base_R_Index1.updateWorldMatrix(true, false);
+          B.CC_Base_R_Pinky1.updateWorldMatrix(true, false);
+          B.CC_Base_R_Pinky1.getWorldPosition(_uArm);
+          B.CC_Base_R_Index1.getWorldPosition(_fingerTipWorld);
+          _bX.subVectors(_uArm, _fingerTipWorld);
+          _bX.addScaledVector(_bZ, -_bX.dot(_bZ)).normalize();
+          _bY.crossVectors(_bZ, _bX).normalize();
+          if (_bY.y < 0) {
+            _bX.negate();
+            _bY.negate();
+          }
+        } else {
+          _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
+          _bX.crossVectors(_bY, _bZ).normalize();
+          _bY.crossVectors(_bZ, _bX).normalize();
+        }
+        // Measured dorsal right-hand skin surface in patient.glb (1.18x) is +0.0300m above bone line
+        _headPos.addScaledVector(_bY, 0.0305);
         rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_headPos));
         _basisMat.makeBasis(_bX, _bY, _bZ);
         _worldQuat.setFromRotationMatrix(_basisMat);
@@ -2450,24 +2484,24 @@ function PatientAndWristband({
         rightHandIvRef.current.quaternion.copy(_parentQuatInv).multiply(_worldQuat);
       } else {
         _wristWorld.x += 0.018;
-        _wristWorld.y += 0.016;
+        _wristWorld.y += 0.032;
         _wristWorld.z += 0.052;
         rightHandIvRef.current.parent.worldToLocal(rightHandIvRef.current.position.copy(_wristWorld));
       }
     }
 
-    // Track left index finger pulse-oximeter clip & chest V-collar ECG lead port for Bedside Monitor cables
+    // Track left index finger pulse-oximeter clamshell clip (`13.8mm` finger radius at 1.18x) & chest V-collar ECG lead port
     if (spo2FingerClipRef.current?.parent && B.CC_Base_L_Index2 && B.CC_Base_L_Index3) {
       B.CC_Base_L_Index2.updateWorldMatrix(true, false);
       B.CC_Base_L_Index3.updateWorldMatrix(true, false);
       B.CC_Base_L_Index2.getWorldPosition(_knuckleWorld);
       B.CC_Base_L_Index3.getWorldPosition(_fingerTipWorld);
-      _headPos.lerpVectors(_knuckleWorld, _fingerTipWorld, 0.65);
-      _headPos.y += 0.004;
-      spo2FingerClipRef.current.parent.worldToLocal(spo2FingerClipRef.current.position.copy(_headPos));
       _bZ.subVectors(_knuckleWorld, _fingerTipWorld).normalize();
       _bY.set(0, 1, 0).addScaledVector(_bZ, -_bZ.y).normalize();
       _bX.crossVectors(_bY, _bZ).normalize();
+      _bY.crossVectors(_bZ, _bX).normalize();
+      _headPos.lerpVectors(_knuckleWorld, _fingerTipWorld, 0.72).addScaledVector(_bY, 0.003);
+      spo2FingerClipRef.current.parent.worldToLocal(spo2FingerClipRef.current.position.copy(_headPos));
       _basisMat.makeBasis(_bX, _bY, _bZ);
       _worldQuat.setFromRotationMatrix(_basisMat);
       spo2FingerClipRef.current.parent.getWorldQuaternion(_parentQuatInv).invert();
@@ -2649,67 +2683,75 @@ function PatientAndWristband({
         )}
       </group>
 
-      {/* Transparent Tegaderm IV Site Dressing + 20G Catheter Hub & J-Loop on Pronated Right Hand */}
-      <group ref={rightHandIvRef} position={[-0.295, 1.188, -0.04]} rotation={[0, 0.16, 0]}>
+      {/* Transparent Tegaderm IV Site Dressing + 20G Catheter Hub & Luer-Lock on Pronated Right Hand (scaled to 1.18x patient) */}
+      <group ref={rightHandIvRef} position={[-0.295, 1.21, -0.04]} rotation={[0, 0.16, 0]} scale={1.18}>
         {/* White paper-frame border around clear semi-permeable polyurethane Tegaderm film */}
-        <RoundedBox args={[0.046, 0.0025, 0.056]} radius={0.001} position={[0, 0.002, 0]}>
-          <meshStandardMaterial color="#f8fafc" roughness={0.82} />
+        <RoundedBox args={[0.048, 0.003, 0.058]} radius={0.0012} position={[0, 0.002, 0]}>
+          <meshStandardMaterial color="#f8fafc" roughness={0.78} />
         </RoundedBox>
-        <mesh position={[0, 0.0036, 0]}>
-          <boxGeometry args={[0.036, 0.0015, 0.044]} />
-          <meshPhysicalMaterial color="#e2e8f0" transparent opacity={0.36} roughness={0.18} />
+        <mesh position={[0, 0.0038, 0]}>
+          <boxGeometry args={[0.036, 0.0018, 0.045]} />
+          <meshPhysicalMaterial color="#cbd5e1" transparent opacity={0.42} roughness={0.16} />
         </mesh>
-        {/* Stabilization wings + pink 20G IV catheter hub + Luer-lock needleless connector */}
-        <mesh position={[0, 0.005, -0.004]}>
-          <boxGeometry args={[0.018, 0.0022, 0.009]} />
-          <meshStandardMaterial color="#f472b6" roughness={0.42} />
+        {/* Stabilization wings + pink 20G IV catheter hub + cyan Luer-lock needleless connector */}
+        <mesh position={[0, 0.0056, -0.004]}>
+          <boxGeometry args={[0.022, 0.0028, 0.011]} />
+          <meshStandardMaterial color="#f472b6" roughness={0.38} />
         </mesh>
-        <mesh position={[0, 0.0068, -0.004]} rotation={[Math.PI / 2 - 0.08, 0, 0]}>
-          <cylinderGeometry args={[0.0034, 0.0044, 0.022, 14]} />
-          <meshStandardMaterial color="#ec4899" roughness={0.36} />
+        <mesh position={[0, 0.008, -0.003]} rotation={[Math.PI / 2 - 0.08, 0, 0]}>
+          <cylinderGeometry args={[0.0042, 0.0054, 0.024, 14]} />
+          <meshStandardMaterial color="#ec4899" roughness={0.34} />
         </mesh>
-        <mesh position={[0, 0.0072, 0.011]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.0042, 0.0042, 0.012, 14]} />
-          <meshStandardMaterial color="#38bdf8" roughness={0.32} metalness={0.12} />
+        <mesh position={[0, 0.0086, 0.013]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.005, 0.005, 0.014, 14]} />
+          <meshStandardMaterial color="#38bdf8" roughness={0.3} metalness={0.12} />
         </mesh>
         {/* White medical securement tape strip + exact IV line Luer-lock port anchor */}
-        <mesh position={[0, 0.0045, 0.021]}>
-          <boxGeometry args={[0.034, 0.002, 0.009]} />
-          <meshStandardMaterial color="#f1f5f9" roughness={0.88} />
+        <mesh position={[0, 0.0052, 0.023]}>
+          <boxGeometry args={[0.038, 0.0025, 0.01]} />
+          <meshStandardMaterial color="#f1f5f9" roughness={0.85} />
         </mesh>
         {portRefs?.rightHandIvHub && (
-          <object3D ref={portRefs.rightHandIvHub} position={[0, 0.0072, 0.017]} />
+          <object3D ref={portRefs.rightHandIvHub} position={[0, 0.0086, 0.020]} />
         )}
       </group>
 
-      {/* Fingertip SpO2 Pulse-Oximeter Sensor Clip on Left Index Finger + Chest Collar ECG Lead Anchor */}
-      <group ref={spo2FingerClipRef} position={[0.34, 1.16, 0.06]}>
+      {/* Clamshell Fingertip SpO2 Pulse-Oximeter Sensor Clip on Left Index Finger + Chest Collar ECG Lead Anchor */}
+      <group ref={spo2FingerClipRef} position={[0.34, 1.17, 0.06]}>
         {monitorConnected && (
           <>
-            <RoundedBox args={[0.016, 0.013, 0.028]} radius={0.004}>
-              <meshStandardMaterial color="#e2e8f0" roughness={0.36} />
+            {/* Upper medical grey/white clamshell housing (clears 13.8mm finger radius) */}
+            <RoundedBox args={[0.030, 0.013, 0.038]} radius={0.005} position={[0, 0.011, 0]}>
+              <meshStandardMaterial color="#f1f5f9" roughness={0.34} />
             </RoundedBox>
-            <mesh position={[0, -0.001, 0]}>
-              <sphereGeometry args={[0.0035, 8, 8]} />
-              <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={1.6} toneMapped={false} />
+            {/* Lower soft charcoal silicone pad */}
+            <RoundedBox args={[0.029, 0.011, 0.036]} radius={0.004} position={[0, -0.009, 0]}>
+              <meshStandardMaterial color="#334155" roughness={0.55} />
+            </RoundedBox>
+            {/* Red optical pulse-oximeter emitter glow window */}
+            <mesh position={[0, 0.018, -0.004]}>
+              <boxGeometry args={[0.010, 0.0025, 0.008]} />
+              <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={1.8} toneMapped={false} />
             </mesh>
-            <mesh position={[0, 0.002, 0.016]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.003, 0.003, 0.008, 10]} />
-              <meshStandardMaterial color="#38bdf8" roughness={0.4} />
+            {/* Cyan molded cable strain-relief boot */}
+            <mesh position={[0, 0.009, 0.023]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.0044, 0.0052, 0.012, 12]} />
+              <meshStandardMaterial color="#38bdf8" roughness={0.36} />
             </mesh>
           </>
         )}
-        {portRefs?.patientSpo2 && <object3D ref={portRefs.patientSpo2} position={[0, 0.002, 0.020]} />}
+        {portRefs?.patientSpo2 && <object3D ref={portRefs.patientSpo2} position={[0, 0.009, 0.029]} />}
       </group>
 
       <group ref={ecgCollarAnchorRef} position={[0.05, 1.30, -0.68]}>
         {portRefs?.patientEcg && <object3D ref={portRefs.patientEcg} position={[0, 0, 0]} />}
       </group>
 
-      {/* Exact 3D Hospital Vinyl Snap-Closure Wristband + Printed Barcode Label + Red Allergy Clasp from Inspector */}
-      <group ref={leftWristRef} position={[0.31, 1.174, -0.12]}>
+      {/* Exact 3D Hospital Vinyl Snap-Closure Wristband + Printed Barcode Label + Red Allergy Clasp from Inspector
+          (Sized to clear measured 1.18x wrist mesh [±44.8mm width, -31..+43mm thick] cleanly without skin burial!) */}
+      <group ref={leftWristRef} position={[0.31, 1.18, -0.12]}>
         {bedsideWristband && (
-          <group scale={[0.0245, 0.034, 0.0255]}>
+          <group scale={[0.0352, 0.043, 0.0432]}>
             <primitive object={bedsideWristband.group} />
           </group>
         )}
@@ -3038,14 +3080,43 @@ function BedsideMonitor3D({
     return { fitted: object, screen };
   }, [scene]);
 
-  const { monitor, texture } = useMemo(() => {
+  const { monitor, texture, drawStandby } = useMemo(() => {
     const canvas = document.createElement('canvas');
     const m = new SweepMonitor(canvas, { pixelRatio: 1, patientName });
+    const renderStandby = () => {
+      const ctx = m.ctx;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#07101e';
+      ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(2, 2, LOGICAL_W - 4, LOGICAL_H - 4);
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = '800 22px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('STANDBY · TELEMETRY OFF', LOGICAL_W / 2, LOGICAL_H / 2 - 14);
+      ctx.fillStyle = '#64748b';
+      ctx.font = '600 15px monospace';
+      ctx.fillText('Connect SpO2 / ECG leads to begin monitoring', LOGICAL_W / 2, LOGICAL_H / 2 + 18);
+    };
+    renderStandby();
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
-    return { monitor: m, texture: tex };
+    tex.needsUpdate = true;
+    return { monitor: m, texture: tex, drawStandby: renderStandby };
   }, [patientName]);
+
+  useEffect(() => {
+    if (monitorConnected) {
+      monitor.tick(0.05);
+      texture.needsUpdate = true;
+    } else {
+      drawStandby();
+      texture.needsUpdate = true;
+    }
+  }, [monitorConnected, monitor, texture, drawStandby]);
 
   const monitorFrameAcc = useRef(0);
   useFrame((state, delta) => {
@@ -3090,25 +3161,16 @@ function BedsideMonitor3D({
     >
       <primitive object={fitted} />
 
-      {/* Live Emissive ICU Waveform Screen mounted on the 3D monitor face */}
+      {/* Live Emissive ICU Waveform Screen mounted on the 3D monitor face (single persistent map avoids WebGL USE_MAP white screen!) */}
       <group position={screen.pos} rotation={[0, screen.rotY, 0]}>
         <mesh position={[0, 0, 0.002]} renderOrder={1}>
           <planeGeometry args={[screenW, screenH]} />
-          {monitorConnected ? (
-            <meshBasicMaterial
-              map={texture}
-              toneMapped={false}
-              polygonOffset
-              polygonOffsetFactor={-4}
-            />
-          ) : (
-            <meshBasicMaterial
-              color="#0b1324"
-              toneMapped={false}
-              polygonOffset
-              polygonOffsetFactor={-4}
-            />
-          )}
+          <meshBasicMaterial
+            map={texture}
+            toneMapped={false}
+            polygonOffset
+            polygonOffsetFactor={-4}
+          />
         </mesh>
 
         {/* Flush-mounted Top Bezel Acrylic LED Alarm Light Bar */}
@@ -3129,25 +3191,25 @@ function BedsideMonitor3D({
         </group>
 
         {/* Side Telemetry Trunk Module + Molded Strain-Relief Boots (mounted on bed-facing left side of monitor!) */}
-        <group position={[bedSideSign * (screenW / 2 + 0.016), -0.025, -0.014]}>
-          <RoundedBox args={[0.026, 0.095, 0.038]} radius={0.006}>
+        <group position={[bedSideSign * (screenW / 2 + 0.016), -0.025, -0.006]}>
+          <RoundedBox args={[0.028, 0.105, 0.042]} radius={0.006}>
             <meshStandardMaterial color="#1e293b" roughness={0.42} metalness={0.3} />
           </RoundedBox>
           {/* SpO2 cyan cable boot */}
-          <mesh position={[bedSideSign * 0.016, 0.022, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.0055, 0.007, 0.018, 12]} />
-            <meshStandardMaterial color="#38bdf8" roughness={0.4} />
+          <mesh position={[bedSideSign * 0.020, 0.024, 0.006]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.0065, 0.008, 0.024, 12]} />
+            <meshStandardMaterial color="#38bdf8" emissive="#0284c7" emissiveIntensity={0.3} roughness={0.35} />
           </mesh>
           {portRefs?.monitorSpo2 && (
-            <object3D ref={portRefs.monitorSpo2} position={[bedSideSign * 0.025, 0.022, 0]} />
+            <object3D ref={portRefs.monitorSpo2} position={[bedSideSign * 0.032, 0.024, 0.006]} />
           )}
           {/* ECG green trunk cable boot */}
-          <mesh position={[bedSideSign * 0.016, -0.022, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.0055, 0.007, 0.018, 12]} />
-            <meshStandardMaterial color="#10b981" roughness={0.4} />
+          <mesh position={[bedSideSign * 0.020, -0.024, 0.006]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.0065, 0.008, 0.024, 12]} />
+            <meshStandardMaterial color="#10b981" emissive="#059669" emissiveIntensity={0.3} roughness={0.35} />
           </mesh>
           {portRefs?.monitorEcg && (
-            <object3D ref={portRefs.monitorEcg} position={[bedSideSign * 0.025, -0.022, 0]} />
+            <object3D ref={portRefs.monitorEcg} position={[bedSideSign * 0.032, -0.024, 0.006]} />
           )}
         </group>
       </group>
