@@ -43,6 +43,10 @@ import BriefingModal, { ExamOverlay, examTokens } from '../components/exam/Brief
 import ExitQuestionsModal from '../components/exam/ExitQuestionsModal';
 import PerformanceReport from '../components/exam/PerformanceReport';
 import StationPanelBody from '../components/exam/StationPanels';
+import {
+  PatientDistressPopover,
+  DeteriorationCinemaModal,
+} from '../components/exam/DeteriorationVideoModal';
 import { QUALITY_MODES, QUALITY_TIERS, nativePercent } from '../components/AdaptiveQuality';
 import useViewport from '../lib/useViewport';
 
@@ -139,6 +143,11 @@ export default function StudyAiExamPage() {
   const [activeDrawerId, setActiveDrawerId] = useState(null);
   const [drawerMinimized, setDrawerMinimized] = useState(false);
   const [wristbandArtifactOpen, setWristbandArtifactOpen] = useState(true);
+  const [distressEmoteActive, setDistressEmoteActive] = useState(false);
+  const [distressPopoverVisible, setDistressPopoverVisible] = useState(false);
+  const [distressVideoOpen, setDistressVideoOpen] = useState(false);
+  const pendingDistressVideoRef = useRef(false);
+  const distressAlertedStagesRef = useRef({ early: false, severe: false });
 
   useEffect(() => {
     if (activeDrawerId === 'wristband') {
@@ -350,6 +359,32 @@ export default function StudyAiExamPage() {
       criticalStartRef.current = null;
     }
 
+    if (isStabilized(clin, vitals, scenarioData)) {
+      if (distressEmoteActive) setDistressEmoteActive(false);
+      if (distressPopoverVisible) setDistressPopoverVisible(false);
+    } else {
+      if (
+        !distressAlertedStagesRef.current.early &&
+        t >= 12 &&
+        (vitals.spo2 < 92 || vitals.rr <= 12)
+      ) {
+        distressAlertedStagesRef.current.early = true;
+        setDistressEmoteActive(true);
+        setDistressPopoverVisible(true);
+      }
+      if (
+        !distressAlertedStagesRef.current.severe &&
+        (clin.untreatedDeterioration ||
+          clin.hemorrhageShock ||
+          clin.opioidLevel === 'crash' ||
+          clin.opioidLevel === 'toxic_bolus')
+      ) {
+        distressAlertedStagesRef.current.severe = true;
+        setDistressEmoteActive(true);
+        setDistressPopoverVisible(true);
+      }
+    }
+
     if (t >= EX.duration_sec) endBedside('TIME_EXPIRED');
   }, [examElapsed]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -366,7 +401,9 @@ export default function StudyAiExamPage() {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.key !== 'Escape' || examStage !== EXAM_STAGES.BEDSIDE) return;
-      if (showConcludeConfirm) {
+      if (distressVideoOpen) {
+        setDistressVideoOpen(false);
+      } else if (showConcludeConfirm) {
         setShowConcludeConfirm(false);
       } else {
         setActiveDrawerId(null);
@@ -375,7 +412,7 @@ export default function StudyAiExamPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [examStage, showConcludeConfirm]);
+  }, [examStage, showConcludeConfirm, distressVideoOpen]);
 
   /* ---------------- Stage transitions & Platform URL Integration ---------------- */
   const handleBegin = useCallback(() => {
@@ -384,6 +421,11 @@ export default function StudyAiExamPage() {
     maskingStartRef.current = null;
     renarcStartRef.current = null;
     criticalStartRef.current = null;
+    pendingDistressVideoRef.current = false;
+    distressAlertedStagesRef.current = { early: false, severe: false };
+    setDistressEmoteActive(false);
+    setDistressPopoverVisible(false);
+    setDistressVideoOpen(false);
     setExamElapsed(0);
     setExamStage(EXAM_STAGES.BEDSIDE);
     setIntroTrigger((t) => t + 1);
@@ -536,6 +578,11 @@ export default function StudyAiExamPage() {
     setSubmission(EMPTY_SUBMISSION);
     setActiveDrawerId(null);
     setShowConcludeConfirm(false);
+    pendingDistressVideoRef.current = false;
+    distressAlertedStagesRef.current = { early: false, severe: false };
+    setDistressEmoteActive(false);
+    setDistressPopoverVisible(false);
+    setDistressVideoOpen(false);
     setCameraFocusId('overview');
     setCameraTrigger((t) => t + 1);
     setExamStage(EXAM_STAGES.PRE_BRIEFING);
@@ -578,9 +625,33 @@ export default function StudyAiExamPage() {
         recordEvent('INSPECT_STATION', id, `Inspected ${EX.station_labels[id]}`);
       }
       if (id === 'ehr_tablet') viewEhrTab(clinRef.current.activeEhrTab);
+      if (id === 'wristband' && pendingDistressVideoRef.current) {
+        pendingDistressVideoRef.current = false;
+        setDistressVideoOpen(true);
+      }
     },
     [recordEvent, viewEhrTab]
   );
+
+  const handleInspectDistress = useCallback(() => {
+    if (examStageRef.current !== EXAM_STAGES.BEDSIDE) return;
+    setDistressPopoverVisible(false);
+    recordEvent(
+      'OBSERVE_PATIENT_DETERIORATION_VIDEO',
+      'wristband',
+      'Observed close-up patient respiratory & diaphoresis acting clip'
+    );
+    if (activeDrawerIdRef.current === 'wristband') {
+      cueNurse('wristband');
+      setDistressVideoOpen(true);
+    } else {
+      pendingDistressVideoRef.current = true;
+      pendingStationRef.current = 'wristband';
+      setActiveDrawerId(null);
+      setCameraFocusId('wristband');
+      setCameraTrigger((t) => t + 1);
+    }
+  }, [cueNurse, recordEvent]);
 
   const handleNurseDepart = useCallback(() => {
     setActiveDrawerId(null);
@@ -880,6 +951,8 @@ export default function StudyAiExamPage() {
           primaryDressingRemoved={clin.primaryDressingRemoved}
           hemorrhageShock={clin.hemorrhageShock}
           crystalloidBolus={clin.crystalloidBolus}
+          distressEmoteVisible={distressEmoteActive}
+          onInspectDistress={handleInspectDistress}
           completedObjects={inspectedStations}
           selectedObjectId={activeDrawerId}
           onSelectObject={handleSelectStation}
@@ -1387,8 +1460,23 @@ export default function StudyAiExamPage() {
             </div>
           </div>
 
+          {/* SCREEN POP-OVER EMOTE TOAST FOR SUBTLE PATIENT DETERIORATION */}
+          {distressPopoverVisible && !distressVideoOpen && (
+            <PatientDistressPopover
+              onInspect={handleInspectDistress}
+              onDismiss={() => setDistressPopoverVisible(false)}
+              isPhone={isPhone}
+            />
+          )}
+
+          {/* CLOSE-UP PATIENT ACTING CINEMA VIDEO MODAL */}
+          <DeteriorationCinemaModal
+            open={distressVideoOpen}
+            onClose={() => setDistressVideoOpen(false)}
+          />
+
           {/* 3D ROTATING WRISTBAND ARTIFACT INSPECTOR (triggers alongside the Patient Wrist sidebar) */}
-          {activeDrawerId === 'wristband' && wristbandArtifactOpen && (
+          {activeDrawerId === 'wristband' && wristbandArtifactOpen && !distressVideoOpen && (
             <WristbandArtifactInspector
               patient={scenarioData.patient}
               verifiedId={clin.verifiedId}
@@ -1439,6 +1527,10 @@ export default function StudyAiExamPage() {
                 onVerifyId={handleVerifyId}
                 wristbandArtifactOpen={wristbandArtifactOpen}
                 onOpenWristbandArtifact={() => setWristbandArtifactOpen(true)}
+                onWatchDistressVideo={() => {
+                  cueNurse('wristband');
+                  setDistressVideoOpen(true);
+                }}
                 activeEhrTab={clin.activeEhrTab}
                 onSelectEhrTab={viewEhrTab}
                 allergyFlagged={clin.allergyFlagged}

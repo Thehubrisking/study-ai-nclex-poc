@@ -1961,20 +1961,20 @@ function PatientAndWristband({
     const elapsed = state.clock.elapsedTime;
     const B = bonesRef.current;
 
-    // 1. Sub-100ms cyanosis + postoperative hemorrhage pallor & diaphoretic skin sheen (skin material only)
+    // 1. Subtle natural pallor & diaphoretic skin moisture (zero artificial blue emissive cast on dark skin!)
     const t = THREE.MathUtils.clamp((94 - live.spo2) / 14, 0, 1);
-    const pallor = crystalloidBolus ? 0.06 : hemorrhageShock ? 0.34 : 0.18;
+    const pallor = crystalloidBolus ? 0.02 : hemorrhageShock ? 0.08 : 0.04;
     _tint.setRGB(
-      1 - 0.42 * t + pallor * 0.08,
-      1 - 0.32 * t + pallor * 0.04,
-      1 - 0.06 * t + pallor * 0.06
+      1 - 0.06 * t - pallor * 0.03,
+      1 - 0.06 * t - pallor * 0.03,
+      1 - 0.05 * t - pallor * 0.02
     );
-    const targetRoughness = crystalloidBolus ? 0.92 : hemorrhageShock ? 0.66 : 0.84;
+    const targetRoughness = crystalloidBolus ? 0.88 : hemorrhageShock ? 0.72 : 0.82;
     for (const m of materials.current) {
       m.color.copy(_tint);
       m.roughness = targetRoughness;
       if (m.emissive) {
-        m.emissive.copy(_cyanEmissive).multiplyScalar(live.cyanosis * 0.22);
+        m.emissive.setRGB(0, 0, 0);
       }
     }
 
@@ -2310,6 +2310,108 @@ function PatientAndWristband({
 }
 
 /* ---------- 2B. Post-Exploratory Laparotomy 3D Attention Emote (Triggers Situational Clinical Video) ---------- */
+function PatientDistressEmote3D({ bedAngle = 0, visible = false, onInspect }) {
+  const [hovered, setHovered] = useState(false);
+  const ctx = React.useContext(HotspotContext);
+  if (!ctx.visible || !visible) return null;
+
+  const elevY = Math.sin(THREE.MathUtils.degToRad(Math.max(0, bedAngle))) * 0.18;
+  const accentColor = '#e8b04b';
+
+  return (
+    <group position={[0.22, 1.56 + elevY, -0.78]}>
+      <Html center zIndexRange={[23, 0]}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.currentTarget.blur();
+            onInspect?.();
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          title="Walk nurse over & watch close-up bedside observation clip"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '5px',
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            animation: 'studyaiEmoteFloat 2.2s ease-in-out infinite',
+          }}
+        >
+          <span
+            style={{
+              position: 'relative',
+              width: '48px',
+              height: '48px',
+              borderRadius: '50%',
+              background: 'rgba(10, 19, 16, 0.92)',
+              border: `2px solid ${accentColor}`,
+              boxShadow: `0 10px 24px rgba(0, 0, 0, 0.52), 0 0 0 4px rgba(232, 176, 75, 0.18)`,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transform: hovered ? 'scale(1.10)' : 'scale(1)',
+              transition: 'transform 0.16s ease',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                inset: -3,
+                borderRadius: '50%',
+                border: `2px solid ${accentColor}`,
+                animation: 'studyaiEmotePulse 1.8s cubic-bezier(0.2, 0.6, 0.3, 1) infinite',
+                pointerEvents: 'none',
+              }}
+            />
+            <span style={{ fontSize: '21px', lineHeight: 1 }}>😮‍💨</span>
+            <span
+              style={{
+                position: 'absolute',
+                right: '-2px',
+                bottom: '-2px',
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                background: accentColor,
+                color: '#0a1310',
+                fontSize: '9px',
+                fontWeight: 900,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              ▶
+            </span>
+          </span>
+          <span
+            style={{
+              padding: '3px 10px',
+              borderRadius: '999px',
+              background: 'rgba(10, 19, 16, 0.92)',
+              border: `1px solid ${accentColor}`,
+              color: '#fde68a',
+              fontSize: '11px',
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 6px 16px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            Observe Patient ▶
+          </span>
+        </button>
+      </Html>
+    </group>
+  );
+}
+
 function SurgicalDrainsAndDressing3D({
   bedAngle = 0,
   jpAssessed = false,
@@ -3151,6 +3253,8 @@ const Room3D = React.memo(function Room3D({
   primaryDressingRemoved = false,
   hemorrhageShock = false,
   crystalloidBolus = false,
+  distressEmoteVisible = false,
+  onInspectDistress,
   completedObjects,
   selectedObjectId,
   onSelectObject,
@@ -3352,6 +3456,12 @@ const Room3D = React.memo(function Room3D({
                 emoteIcon={scenarioData?.exam_config?.surgical_site?.emote_glyph || '🩸'}
                 surgicalObj={getObj('surgical_site')}
                 {...sel('surgical_site')}
+              />
+
+              <PatientDistressEmote3D
+                bedAngle={Math.max(0, bedAngle)}
+                visible={distressEmoteVisible}
+                onInspect={onInspectDistress}
               />
             </TrendelenburgTilt>
 
