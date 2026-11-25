@@ -189,7 +189,7 @@ export function PatientDistressPopover({ onInspect, onDismiss, isPhone = false }
  * Full-screen StudyAI Clinical Cinema Modal playing the close-up patient deterioration
  * & nurse bedside assessment clip with optional clinical audio (breathing + SpO2 beeps).
  */
-export function DeteriorationCinemaModal({ open, onClose }) {
+export function DeteriorationCinemaModal({ open, onClose, onOpen3DInspector }) {
   const videoRef = useRef(null);
   const [muted, setMuted] = useState(false);
 
@@ -263,6 +263,29 @@ export function DeteriorationCinemaModal({ open, onClose }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onOpen3DInspector && (
+              <button
+                type="button"
+                onClick={onOpen3DInspector}
+                style={{
+                  height: '30px',
+                  padding: '0 12px',
+                  borderRadius: '999px',
+                  background: '#143528',
+                  border: '1px solid #6fd1a9',
+                  color: '#6fd1a9',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <Eye size={13} /> 3D Cue Inspector
+              </button>
+            )}
+
             <button
               type="button"
               onClick={toggleMute}

@@ -1,0 +1,810 @@
+'use client';
+
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { RotateCw, ZoomIn, ZoomOut, Play, Eye, X } from 'lucide-react';
+import { fitModel } from '../../lib/fitModel';
+
+const PATIENT_GLB_URL = '/models/patient.glb?v=draped_blink_v2';
+const PILLOW_GLB_URL = '/models/pillow.glb';
+const PATIENT_SCALE = 1.18;
+
+const _euler = new THREE.Euler();
+const _deltaQuat = new THREE.Quaternion();
+const _localDelta = new THREE.Quaternion();
+
+function setCharRotation(bone, rx = 0, ry = 0, rz = 0, order = 'XYZ') {
+  if (!bone || !bone.userData.bindQuat || !bone.userData.charQuat) return;
+  _euler.set(rx, ry, rz, order);
+  _deltaQuat.setFromEuler(_euler);
+  _localDelta
+    .copy(bone.userData.charQuatInv)
+    .multiply(_deltaQuat)
+    .multiply(bone.userData.charQuat);
+  bone.quaternion.copy(bone.userData.bindQuat).multiply(_localDelta);
+}
+
+/**
+ * Injects true-to-real-world dark-skin physiological distress cues into the 3D patient skin shader:
+ *  - Glistening cool clammy diaphoretic micro-beads across the forehead, brow, temples, nose & upper lip
+ *  - Subtle pale ashen-greyish mucosal pallor strictly on the parted lips / perioral zone
+ *  - Zero artificial blue lighting or skin glow
+ */
+function enhanceInspectorSkinMaterial(srcMat, uniforms) {
+  const mat = srcMat.clone();
+  mat.roughness = 0.80;
+  mat.metalness = 0.0;
+  if (mat.emissive) mat.emissive.setRGB(0, 0, 0);
+
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDistress = uniforms.uDistress;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying float vSweatZone;
+        varying float vLipZone;
+        varying vec3 vBindFacePos;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vBindFacePos = position.xyz;
+        float swY = smoothstep(1.628, 1.678, position.y) * (1.0 - smoothstep(1.805, 1.848, position.y));
+        float swZ = smoothstep(0.030, 0.086, position.z);
+        float swX = 1.0 - smoothstep(0.056, 0.094, abs(position.x));
+        vSweatZone = clamp(swY * swZ * swX, 0.0, 1.0);
+
+        float lpY = smoothstep(1.615, 1.623, position.y) * (1.0 - smoothstep(1.644, 1.655, position.y));
+        float lpZ = smoothstep(0.096, 0.112, position.z);
+        float lpX = 1.0 - smoothstep(0.021, 0.035, abs(position.x));
+        vLipZone = clamp(lpY * lpZ * lpX, 0.0, 1.0);`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uDistress;
+        varying float vSweatZone;
+        varying float vLipZone;
+        varying vec3 vBindFacePos;
+
+        float sweatBeadHash(vec3 p) {
+          p = fract(p * vec3(443.897, 441.423, 437.195));
+          p += dot(p, p.yzx + 19.19);
+          return fract((p.x + p.y) * p.z);
+        }`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        // Real-world pale ashen-greyish mucosal pallor on parted lips (no blue tint)
+        if (uDistress > 0.01 && vLipZone > 0.01) {
+          float lipLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 ashenMucosa = vec3(lipLum * 1.16, lipLum * 1.17, lipLum * 1.21);
+          diffuseColor.rgb = mix(diffuseColor.rgb, ashenMucosa, vLipZone * uDistress * 0.74);
+        }`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        float sweatBead = 0.0;
+        if (uDistress > 0.01 && vSweatZone > 0.01) {
+          vec3 cellA = floor(vBindFacePos * 310.0);
+          vec3 fracA = fract(vBindFacePos * 310.0) - 0.5;
+          float hA = sweatBeadHash(cellA);
+          float dA = length(fracA);
+          float dropA = step(0.76, hA) * smoothstep(0.34, 0.08, dA);
+
+          vec3 cellB = floor(vBindFacePos * 540.0 + 11.3);
+          vec3 fracB = fract(vBindFacePos * 540.0 + 11.3) - 0.5;
+          float hB = sweatBeadHash(cellB);
+          float dropB = step(0.82, hB) * smoothstep(0.32, 0.07, length(fracB));
+
+          sweatBead = clamp(dropA + dropB * 0.85, 0.0, 1.0) * vSweatZone * uDistress;
+          roughnessFactor = mix(roughnessFactor, 0.34, vSweatZone * uDistress * 0.72);
+          roughnessFactor = mix(roughnessFactor, 0.05, sweatBead * 0.92);
+        }`
+      )
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        if (uDistress > 0.01 && vSweatZone > 0.01) {
+          vec3 viewDirW = normalize(vViewPosition);
+          float ndv = clamp(dot(normal, viewDirW), 0.0, 1.0);
+          float fresnel = pow(1.0 - ndv, 3.2);
+          vec3 cCell = floor(vBindFacePos * 310.0);
+          float cDrop = step(0.76, sweatBeadHash(cCell)) * smoothstep(0.34, 0.06, length(fract(vBindFacePos * 310.0) - 0.5));
+          float glint = pow(max(dot(normal, normalize(vec3(0.36, 0.68, 0.64))), 0.0), 42.0) * cDrop;
+          reflectedLight.indirectSpecular += vec3(0.96, 0.98, 1.0) * (fresnel * 0.085 + glint * 0.52) * vSweatZone * uDistress;
+        }`
+      );
+  };
+  mat.customProgramCacheKey = () => 'patient_inspector_distress_skin_v1';
+  return mat;
+}
+
+const CAMERA_VIEWS = {
+  face: { label: 'Face & Sweat', rotY: -0.26, rotX: 0.12, zoom: 0.86, targetY: 0.06 },
+  airway: { label: 'Airway & Lips', rotY: -0.06, rotX: -0.06, zoom: 0.74, targetY: 0.03 },
+  chest: { label: 'Chest Effort', rotY: -0.34, rotX: 0.22, zoom: 1.24, targetY: -0.06 },
+};
+
+/**
+ * Interactive 3D Rotating Patient Cue Inspector (modeled after WristbandArtifactInspector):
+ * Lets the candidate orbit & zoom a close-up 3D bedside bust of the animated deteriorating
+ * patient (clammy diaphoretic brow sweat, drooping/fluttering sedated eyelids, pale parted lips,
+ * shallow labored gasping respirations), completely separate from the Patient Wristband window,
+ * with a one-click launcher for the 1080p Gemini Omni Live-Action Film.
+ */
+export default function PatientDistressInspector3D({
+  vitals,
+  onWatchVideo,
+  onClose,
+  hasSideDrawer = false,
+  isMobile = false,
+}) {
+  const mountRef = useRef(null);
+  const [autoSpin, setAutoSpin] = useState(false);
+  const [activePreset, setActivePreset] = useState('face');
+  const [loaded, setLoaded] = useState(false);
+  const vitalsRef = useRef(vitals);
+  vitalsRef.current = vitals;
+
+  const interactRef = useRef({
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+    rotY: CAMERA_VIEWS.face.rotY,
+    rotX: CAMERA_VIEWS.face.rotX,
+    velY: 0,
+    velX: 0,
+    zoom: CAMERA_VIEWS.face.zoom,
+    targetY: CAMERA_VIEWS.face.targetY,
+    autoSpin: false,
+  });
+
+  useEffect(() => {
+    interactRef.current.autoSpin = autoSpin;
+  }, [autoSpin]);
+
+  const applyPreset = (key) => {
+    const p = CAMERA_VIEWS[key];
+    if (!p) return;
+    setActivePreset(key);
+    const st = interactRef.current;
+    st.rotY = p.rotY;
+    st.rotX = p.rotX;
+    st.zoom = p.zoom;
+    st.targetY = p.targetY;
+    st.velX = 0;
+    st.velY = 0;
+  };
+
+  useEffect(() => {
+    const container = mountRef.current;
+    if (!container) return undefined;
+
+    let disposed = false;
+    const width = container.clientWidth || 480;
+    const height = container.clientHeight || 320;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, width / height, 0.06, 18);
+    const computeBaseDist = (aspect) => Math.max(0.76, 0.88 / Math.max(0.55, aspect));
+    let baseDist = computeBaseDist(width / height);
+    camera.position.set(0, 0.08, baseDist * interactRef.current.zoom);
+    camera.lookAt(0, interactRef.current.targetY, 0);
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+
+    // Natural neutral hospital examination lighting (zero blue tint!) + specular grazing light for sweat beads
+    const hemi = new THREE.HemisphereLight('#f8fafc', '#cbd5e1', 1.28);
+    scene.add(hemi);
+
+    const keyLight = new THREE.DirectionalLight('#fffaf2', 1.65);
+    keyLight.position.set(1.4, 2.2, 2.1);
+    scene.add(keyLight);
+
+    const sweatGlintLight = new THREE.DirectionalLight('#f1f5f9', 0.95);
+    sweatGlintLight.position.set(-1.3, 1.5, 1.2);
+    scene.add(sweatGlintLight);
+
+    const rimLight = new THREE.DirectionalLight('#e2e8f0', 0.55);
+    rimLight.position.set(0.2, 1.1, -1.8);
+    scene.add(rimLight);
+
+    const pivotGroup = new THREE.Group();
+    scene.add(pivotGroup);
+
+    // Anchor stage so patient's head/pillow/shoulders sit right at pivotGroup (0, 0, 0) in 32-deg Semi-Fowler's
+    const stageGroup = new THREE.Group();
+    stageGroup.position.set(-0.01, -1.39, 0.78);
+    pivotGroup.add(stageGroup);
+
+    // Subtle contoured white cotton hospital sheet cradle behind pillow & shoulders
+    const sheetMat = new THREE.MeshStandardMaterial({
+      color: '#f6f5f0',
+      roughness: 0.9,
+      metalness: 0,
+    });
+    const backrestAngle = THREE.MathUtils.degToRad(32 * 0.76);
+    const backrestGroup = new THREE.Group();
+    backrestGroup.position.set(0, 1.072, -0.31);
+    backrestGroup.rotation.x = backrestAngle;
+
+    const upperSheet = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.055, 0.82), sheetMat);
+    upperSheet.position.set(0, 0.005, -0.46);
+    backrestGroup.add(upperSheet);
+    stageGroup.add(backrestGroup);
+
+    const loader = new GLTFLoader();
+    const bonesMap = {};
+    const skinUniforms = { uDistress: { value: 1.0 } };
+
+    // Load smooth concave pillow
+    loader.load(
+      PILLOW_GLB_URL,
+      (gltf) => {
+        if (disposed) return;
+        const fittedPillow = fitModel(gltf.scene, {
+          axis: 'width',
+          target: 0.74,
+          floor: false,
+          onMesh: (m) => {
+            if (m.material) {
+              m.material = m.material.clone();
+              m.material.roughness = 0.9;
+              m.material.metalness = 0;
+            }
+          },
+        }).object;
+        const pHolder = new THREE.Group();
+        pHolder.position.set(0, 0.056, -0.67);
+        pHolder.add(fittedPillow);
+        backrestGroup.add(pHolder);
+      },
+      undefined,
+      () => {}
+    );
+
+    // Load rigged AccuRIG patient model
+    loader.load(
+      PATIENT_GLB_URL,
+      (gltf) => {
+        if (disposed) return;
+        const pScene = gltf.scene;
+        pScene.updateMatrixWorld(true);
+        const sceneWorldQuatInv = new THREE.Quaternion();
+        pScene.getWorldQuaternion(sceneWorldQuatInv).invert();
+        const boneWorldQuat = new THREE.Quaternion();
+
+        pScene.traverse((obj) => {
+          if (obj.isMesh) {
+            obj.frustumCulled = false;
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            const cloned = mats.map((m) => {
+              if (!m) return m;
+              const mname = (m.name || '').toLowerCase();
+              if (mname.includes('gown')) {
+                const gm = m.clone();
+                gm.side = THREE.DoubleSide;
+                gm.roughness = 0.88;
+                gm.metalness = 0;
+                return gm;
+              }
+              if (mname.includes('eye')) {
+                const em = m.clone();
+                em.roughness = 0.04;
+                em.metalness = 0;
+                return em;
+              }
+              if (mname.includes('teeth')) {
+                const tm = m.clone();
+                tm.roughness = 0.35;
+                tm.metalness = 0;
+                return tm;
+              }
+              return enhanceInspectorSkinMaterial(m, skinUniforms);
+            });
+            obj.material = Array.isArray(obj.material) ? cloned : cloned[0];
+          }
+
+          if (obj.isBone || obj.name?.startsWith('CC_Base_') || obj.name === 'RL_BoneRoot') {
+            obj.userData.bindQuat = obj.quaternion.clone();
+            obj.getWorldQuaternion(boneWorldQuat);
+            obj.userData.charQuat = sceneWorldQuatInv.clone().multiply(boneWorldQuat);
+            obj.userData.charQuatInv = obj.userData.charQuat.clone().invert();
+            bonesMap[obj.name] = obj;
+          }
+        });
+
+        // Relaxed palm-down arms so shoulders & sleeves drape naturally in the chest view
+        const elevRad = THREE.MathUtils.degToRad(32);
+        setCharRotation(bonesMap.CC_Base_L_Upperarm, 0.12 - elevRad * 0.098, -0.234, -0.373);
+        setCharRotation(bonesMap.CC_Base_L_Forearm, 0.887 - elevRad * 0.372, -0.407, -0.027 + elevRad * 0.255);
+        setCharRotation(bonesMap.CC_Base_R_Upperarm, 0.115 - elevRad * 0.098, 0.225, 0.358);
+        setCharRotation(bonesMap.CC_Base_R_Forearm, 0.855 - elevRad * 0.365, 0.395, 0.025 - elevRad * 0.25);
+
+        const outer = new THREE.Group();
+        outer.position.set(0, 1.178, -0.05);
+        const rotXGroup = new THREE.Group();
+        rotXGroup.rotation.set(-Math.PI / 2, 0, 0);
+        const scaleGroup = new THREE.Group();
+        scaleGroup.scale.setScalar(PATIENT_SCALE);
+        scaleGroup.position.set(0, -0.89 * PATIENT_SCALE, 0);
+        scaleGroup.add(pScene);
+        rotXGroup.add(scaleGroup);
+        outer.add(rotXGroup);
+        stageGroup.add(outer);
+
+        setLoaded(true);
+      },
+      undefined,
+      () => {}
+    );
+
+    const dom = renderer.domElement;
+    dom.style.cursor = 'grab';
+    dom.style.touchAction = 'none';
+
+    const onPointerDown = (e) => {
+      e.stopPropagation();
+      const st = interactRef.current;
+      st.dragging = true;
+      st.lastX = e.clientX;
+      st.lastY = e.clientY;
+      st.velY = 0;
+      st.velX = 0;
+      dom.style.cursor = 'grabbing';
+      dom.setPointerCapture?.(e.pointerId);
+    };
+
+    const onPointerMove = (e) => {
+      const st = interactRef.current;
+      if (!st.dragging) return;
+      const dx = e.clientX - st.lastX;
+      const dy = e.clientY - st.lastY;
+      st.lastX = e.clientX;
+      st.lastY = e.clientY;
+      st.velY = dx * 0.009;
+      st.velX = dy * 0.007;
+      st.rotY = THREE.MathUtils.clamp(st.rotY + st.velY, -1.15, 1.15);
+      st.rotX = THREE.MathUtils.clamp(st.rotX + st.velX, -0.52, 0.72);
+    };
+
+    const onPointerUp = (e) => {
+      interactRef.current.dragging = false;
+      dom.style.cursor = 'grab';
+      dom.releasePointerCapture?.(e.pointerId);
+    };
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const st = interactRef.current;
+      st.zoom = THREE.MathUtils.clamp(st.zoom + e.deltaY * 0.001, 0.58, 1.55);
+    };
+
+    dom.addEventListener('pointerdown', onPointerDown);
+    dom.addEventListener('pointermove', onPointerMove);
+    dom.addEventListener('pointerup', onPointerUp);
+    dom.addEventListener('pointercancel', onPointerUp);
+    dom.addEventListener('wheel', onWheel, { passive: false });
+
+    const onResize = () => {
+      if (!container) return;
+      const w = container.clientWidth || 480;
+      const h = container.clientHeight || 320;
+      camera.aspect = w / h;
+      baseDist = computeBaseDist(camera.aspect);
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+    window.addEventListener('resize', onResize);
+
+    let rafId = 0;
+    const clock = new THREE.Clock();
+    const elevRad = THREE.MathUtils.degToRad(32);
+
+    const animate = () => {
+      rafId = requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const elapsed = clock.elapsedTime;
+      const st = interactRef.current;
+
+      if (!st.dragging) {
+        st.rotY = THREE.MathUtils.clamp(st.rotY + st.velY, -1.15, 1.15);
+        st.rotX = THREE.MathUtils.clamp(st.rotX + st.velX, -0.52, 0.72);
+        st.velY *= 0.91;
+        st.velX *= 0.90;
+        if (st.autoSpin && Math.abs(st.velY) < 0.002) {
+          st.rotY = Math.sin(elapsed * 0.48) * 0.42 - 0.16;
+        }
+      }
+
+      pivotGroup.rotation.order = 'YXZ';
+      pivotGroup.rotation.y = st.rotY;
+      pivotGroup.rotation.x = st.rotX;
+
+      camera.position.z = THREE.MathUtils.lerp(camera.position.z, baseDist * st.zoom, 0.14);
+      camera.lookAt(0, st.targetY, 0);
+
+      // Animate 3D patient matching the Gemini Omni clinical acting clip:
+      // 1) Slow, shallow, labored gasping respirations (RR ~8-10/min)
+      const rr = Math.max(6, vitalsRef.current?.rr || 10);
+      const cycleSec = 60 / rr;
+      const u = (elapsed % cycleSec) / cycleSec;
+      let gasp = 0;
+      if (u < 0.32) {
+        gasp = Math.sin((u / 0.32) * (Math.PI * 0.5));
+      } else if (u < 0.44) {
+        gasp = 1.0 - 0.12 * ((u - 0.32) / 0.12);
+      } else {
+        gasp = 0.88 * Math.pow(1.0 - (u - 0.44) / 0.56, 1.85);
+      }
+
+      if (bonesMap.CC_Base_Waist) {
+        setCharRotation(bonesMap.CC_Base_Waist, elevRad * 0.34, 0, 0);
+        setCharRotation(
+          bonesMap.CC_Base_Spine01,
+          elevRad * 0.25 + gasp * 0.052,
+          Math.sin(elapsed * 0.8) * 0.014,
+          0.012
+        );
+        setCharRotation(bonesMap.CC_Base_Spine02, elevRad * 0.17 + gasp * 0.046, 0, -0.01);
+
+        // Accessory shoulder/clavicle lift on each labored inspiratory gasp
+        setCharRotation(bonesMap.CC_Base_L_Clavicle, -0.03 + gasp * 0.042, 0.05, -0.05);
+        setCharRotation(bonesMap.CC_Base_R_Clavicle, -0.03 + gasp * 0.042, -0.05, 0.05);
+
+        // Head turned slightly left on the pillow (+ry) with sluggish drowsy sway & inspiratory airway gasp
+        const drowsyYaw = 0.38 + Math.sin(elapsed * 0.55) * 0.055 - st.rotY * 0.18;
+        setCharRotation(
+          bonesMap.CC_Base_NeckTwist01,
+          0.11 + elevRad * 0.05 - gasp * 0.025,
+          drowsyYaw * 0.52,
+          0.07
+        );
+        setCharRotation(
+          bonesMap.CC_Base_Head,
+          0.12 + elevRad * 0.04 - gasp * 0.048,
+          drowsyYaw * 0.48,
+          0.04
+        );
+
+        // Open-mouth parted pale lips gasping with each shallow breath
+        if (bonesMap.CC_Base_JawRoot) {
+          const jawOpen = 0.13 + gasp * 0.12;
+          setCharRotation(bonesMap.CC_Base_JawRoot, jawOpen, 0, 0);
+          if (bonesMap.CC_Base_Teeth02) {
+            setCharRotation(bonesMap.CC_Base_Teeth02, jawOpen * 0.85, 0, 0);
+          }
+        }
+
+        if (bonesMap.CC_Base_BrowRelax) {
+          setCharRotation(bonesMap.CC_Base_BrowRelax, 0.115 - gasp * 0.02, 0, 0);
+        }
+
+        // Heavy opioid-sedated drooping eyelids with periodic weak arousal half-blink flutters
+        const flutterPhase = (elapsed % 4.1) / 4.1;
+        let arousalLift = 0;
+        if (flutterPhase > 0.62 && flutterPhase < 0.84) {
+          const fu = (flutterPhase - 0.62) / 0.22;
+          arousalLift = Math.sin(fu * Math.PI) * (0.34 + 0.06 * Math.sin(elapsed * 19.0));
+        }
+        const lidClose = THREE.MathUtils.clamp(0.83 - arousalLift, 0.42, 0.92);
+        setCharRotation(bonesMap.CC_Base_L_UpperLid, lidClose * 0.62, 0, 0);
+        setCharRotation(bonesMap.CC_Base_R_UpperLid, lidClose * 0.60, 0, 0);
+        setCharRotation(bonesMap.CC_Base_L_LowerLid, -lidClose * 0.14, 0, 0);
+        setCharRotation(bonesMap.CC_Base_R_LowerLid, -lidClose * 0.14, 0, 0);
+
+        // Eyes softly track toward the inspector camera during brief arousal flutters
+        const eyeYaw = THREE.MathUtils.clamp(-st.rotY * 0.35 - 0.12, -0.26, 0.26);
+        const eyePitch = THREE.MathUtils.clamp(0.16 + st.rotX * 0.22, 0.04, 0.30);
+        setCharRotation(bonesMap.CC_Base_L_Eye, eyePitch, eyeYaw, 0);
+        setCharRotation(bonesMap.CC_Base_R_Eye, eyePitch, eyeYaw, 0);
+      }
+
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', onResize);
+      dom.removeEventListener('pointerdown', onPointerDown);
+      dom.removeEventListener('pointermove', onPointerMove);
+      dom.removeEventListener('pointerup', onPointerUp);
+      dom.removeEventListener('pointercancel', onPointerUp);
+      dom.removeEventListener('wheel', onWheel);
+      scene.traverse((o) => {
+        if (o.isMesh) {
+          o.geometry?.dispose();
+          if (Array.isArray(o.material)) o.material.forEach((m) => m?.dispose());
+          else o.material?.dispose();
+        }
+      });
+      renderer.dispose();
+    };
+  }, []);
+
+  return (
+    <div
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'fixed',
+        left: isMobile ? '12px' : '252px',
+        right: isMobile ? '12px' : hasSideDrawer ? '474px' : 'auto',
+        width: isMobile ? undefined : hasSideDrawer ? undefined : 'min(540px, calc(100vw - 280px))',
+        top: isMobile ? '64px' : '74px',
+        bottom: isMobile ? 'auto' : '116px',
+        height: isMobile ? '340px' : undefined,
+        minWidth: isMobile ? undefined : '340px',
+        zIndex: 31,
+        borderRadius: '22px',
+        background:
+          'radial-gradient(circle at 50% 42%, rgba(28, 54, 43, 0.95) 0%, rgba(10, 19, 16, 0.97) 78%)',
+        border: '1.5px solid rgba(232, 176, 75, 0.65)',
+        boxShadow: '0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 4px rgba(232, 176, 75, 0.12)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        userSelect: 'none',
+      }}
+    >
+      {/* Top 3D Inspector Header */}
+      <div
+        style={{
+          padding: '10px 14px',
+          borderBottom: '1px solid rgba(42, 65, 54, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <span
+            style={{
+              padding: '3px 9px',
+              borderRadius: '999px',
+              background: 'rgba(232, 176, 75, 0.16)',
+              border: '1px solid rgba(232, 176, 75, 0.5)',
+              color: '#e8b04b',
+              fontSize: '10.5px',
+              fontWeight: 800,
+              letterSpacing: '0.07em',
+              textTransform: 'uppercase',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            <Eye size={11} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '4px' }} />
+            3D Cue Inspector
+          </span>
+          <span
+            style={{
+              fontSize: '12.5px',
+              fontWeight: 800,
+              color: '#eaf2ee',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Bedside Patient Distress
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+          {Object.entries(CAMERA_VIEWS).map(([key, cfg]) => {
+            const active = activePreset === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => applyPreset(key)}
+                style={{
+                  height: '26px',
+                  padding: '0 9px',
+                  borderRadius: '999px',
+                  background: active ? '#143528' : '#11211a',
+                  border: active ? '1px solid #6fd1a9' : '1px solid #2a4136',
+                  color: active ? '#6fd1a9' : '#afc6bc',
+                  fontSize: '10.5px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {cfg.label}
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setAutoSpin((s) => !s)}
+            title="Toggle gentle 3D sway"
+            style={{
+              height: '26px',
+              padding: '0 9px',
+              borderRadius: '999px',
+              background: autoSpin ? '#143528' : '#11211a',
+              border: autoSpin ? '1px solid #6fd1a9' : '1px solid #2a4136',
+              color: autoSpin ? '#6fd1a9' : '#8ca69b',
+              fontSize: '10.5px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <RotateCw size={11} /> {autoSpin ? 'Auto' : 'Orbit'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              interactRef.current.zoom = Math.max(0.58, interactRef.current.zoom - 0.14);
+            }}
+            title="Zoom in"
+            style={{
+              width: '26px',
+              height: '26px',
+              borderRadius: '50%',
+              background: '#11211a',
+              border: '1px solid #2a4136',
+              color: '#afc6bc',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <ZoomIn size={12} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              interactRef.current.zoom = Math.min(1.55, interactRef.current.zoom + 0.14);
+            }}
+            title="Zoom out"
+            style={{
+              width: '26px',
+              height: '26px',
+              borderRadius: '50%',
+              background: '#11211a',
+              border: '1px solid #2a4136',
+              color: '#afc6bc',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <ZoomOut size={12} />
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            title="Minimize 3D Patient Cue Inspector"
+            style={{
+              width: '26px',
+              height: '26px',
+              borderRadius: '50%',
+              background: '#11211a',
+              border: '1px solid #2a4136',
+              color: '#8ca69b',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Interactive 3D WebGL Viewport */}
+      <div style={{ position: 'relative', flex: 1, minHeight: '190px' }}>
+        <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+        {!loaded && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#8ca69b',
+              fontSize: '12px',
+              fontWeight: 700,
+              pointerEvents: 'none',
+            }}
+          >
+            Loading 3D bedside cue model…
+          </div>
+        )}
+        <div
+          style={{
+            position: 'absolute',
+            left: '12px',
+            bottom: '10px',
+            padding: '4px 10px',
+            borderRadius: '999px',
+            background: 'rgba(10, 19, 16, 0.78)',
+            border: '1px solid rgba(42, 65, 54, 0.85)',
+            color: '#9cb6ab',
+            fontSize: '10.5px',
+            fontWeight: 600,
+            pointerEvents: 'none',
+          }}
+        >
+          Drag to rotate 3D patient · Scroll to inspect brow sweat & lips
+        </div>
+      </div>
+
+      {/* Bottom Clinical Action Bar + Separate Live-Action Cinema Launcher */}
+      <div
+        style={{
+          padding: '10px 14px',
+          borderTop: '1px solid rgba(42, 65, 54, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '10px',
+          flexWrap: 'wrap',
+          background: 'rgba(8, 16, 13, 0.72)',
+        }}
+      >
+        <div style={{ fontSize: '11.5px', color: '#afc6bc', lineHeight: 1.4, flex: '1 1 180px' }}>
+          Observe glistening diaphoretic brow sweat, drooping sedated lids & shallow open-mouth gasping.
+        </div>
+
+        {onWatchVideo && (
+          <button
+            type="button"
+            onClick={onWatchVideo}
+            style={{
+              height: '34px',
+              padding: '0 15px',
+              borderRadius: '999px',
+              background: '#e8b04b',
+              border: 'none',
+              color: '#0a1310',
+              fontSize: '12px',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            <Play size={13} fill="#0a1310" /> Watch Live-Action Film
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

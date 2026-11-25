@@ -78,6 +78,11 @@ const WristbandArtifactInspector = dynamic(
   { ssr: false }
 );
 
+const PatientDistressInspector3D = dynamic(
+  () => import('../components/exam/PatientDistressInspector3D'),
+  { ssr: false }
+);
+
 const EX = scenarioData.exam_config;
 const OBJECT_ICONS = {
   bedside_monitor: Activity,
@@ -145,6 +150,7 @@ export default function StudyAiExamPage() {
   const [wristbandArtifactOpen, setWristbandArtifactOpen] = useState(true);
   const [distressEmoteActive, setDistressEmoteActive] = useState(false);
   const [distressPopoverVisible, setDistressPopoverVisible] = useState(false);
+  const [distressInspectorOpen, setDistressInspectorOpen] = useState(false);
   const [distressVideoOpen, setDistressVideoOpen] = useState(false);
   const pendingDistressVideoRef = useRef(false);
   const distressAlertedStagesRef = useRef({ early: false, severe: false });
@@ -152,6 +158,7 @@ export default function StudyAiExamPage() {
   useEffect(() => {
     if (activeDrawerId === 'wristband') {
       setWristbandArtifactOpen(true);
+      setDistressInspectorOpen(false);
     }
   }, [activeDrawerId]);
   const [inspectedStations, setInspectedStations] = useState([]);
@@ -362,6 +369,7 @@ export default function StudyAiExamPage() {
     if (isStabilized(clin, vitals, scenarioData)) {
       if (distressEmoteActive) setDistressEmoteActive(false);
       if (distressPopoverVisible) setDistressPopoverVisible(false);
+      if (distressInspectorOpen) setDistressInspectorOpen(false);
     } else {
       if (
         !distressAlertedStagesRef.current.early &&
@@ -370,7 +378,11 @@ export default function StudyAiExamPage() {
       ) {
         distressAlertedStagesRef.current.early = true;
         setDistressEmoteActive(true);
-        setDistressPopoverVisible(true);
+        if (activeDrawerIdRef.current === 'wristband') {
+          setDistressPopoverVisible(true);
+        } else {
+          setDistressInspectorOpen(true);
+        }
       }
       if (
         !distressAlertedStagesRef.current.severe &&
@@ -381,7 +393,11 @@ export default function StudyAiExamPage() {
       ) {
         distressAlertedStagesRef.current.severe = true;
         setDistressEmoteActive(true);
-        setDistressPopoverVisible(true);
+        if (activeDrawerIdRef.current === 'wristband') {
+          setDistressPopoverVisible(true);
+        } else {
+          setDistressInspectorOpen(true);
+        }
       }
     }
 
@@ -403,6 +419,8 @@ export default function StudyAiExamPage() {
       if (e.key !== 'Escape' || examStage !== EXAM_STAGES.BEDSIDE) return;
       if (distressVideoOpen) {
         setDistressVideoOpen(false);
+      } else if (distressInspectorOpen) {
+        setDistressInspectorOpen(false);
       } else if (showConcludeConfirm) {
         setShowConcludeConfirm(false);
       } else {
@@ -412,7 +430,7 @@ export default function StudyAiExamPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [examStage, showConcludeConfirm, distressVideoOpen]);
+  }, [examStage, showConcludeConfirm, distressVideoOpen, distressInspectorOpen]);
 
   /* ---------------- Stage transitions & Platform URL Integration ---------------- */
   const handleBegin = useCallback(() => {
@@ -425,6 +443,7 @@ export default function StudyAiExamPage() {
     distressAlertedStagesRef.current = { early: false, severe: false };
     setDistressEmoteActive(false);
     setDistressPopoverVisible(false);
+    setDistressInspectorOpen(false);
     setDistressVideoOpen(false);
     setExamElapsed(0);
     setExamStage(EXAM_STAGES.BEDSIDE);
@@ -582,6 +601,7 @@ export default function StudyAiExamPage() {
     distressAlertedStagesRef.current = { early: false, severe: false };
     setDistressEmoteActive(false);
     setDistressPopoverVisible(false);
+    setDistressInspectorOpen(false);
     setDistressVideoOpen(false);
     setCameraFocusId('overview');
     setCameraTrigger((t) => t + 1);
@@ -601,6 +621,9 @@ export default function StudyAiExamPage() {
     if (examStageRef.current !== EXAM_STAGES.BEDSIDE) return;
     pendingDistressVideoRef.current = false;
     setDistressVideoOpen(false);
+    if (id === 'wristband') {
+      setDistressInspectorOpen(false);
+    }
     pendingStationRef.current = id;
     if (activeDrawerIdRef.current !== id) setActiveDrawerId(null);
     setCameraFocusId(id);
@@ -623,10 +646,15 @@ export default function StudyAiExamPage() {
       if (examStageRef.current !== EXAM_STAGES.BEDSIDE || pendingStationRef.current !== id) return;
       pendingStationRef.current = null;
       if (id === 'patient_observe') {
+        const shouldOpenVideo = pendingDistressVideoRef.current;
         pendingDistressVideoRef.current = false;
         setActiveDrawerId(null);
         setWristbandArtifactOpen(false);
-        setDistressVideoOpen(true);
+        if (shouldOpenVideo) {
+          setDistressVideoOpen(true);
+        } else {
+          setDistressInspectorOpen(true);
+        }
         return;
       }
       setActiveDrawerId(id);
@@ -649,18 +677,27 @@ export default function StudyAiExamPage() {
     recordEvent(
       'OBSERVE_PATIENT_DETERIORATION_VIDEO',
       null,
-      'Observed close-up patient respiratory & diaphoresis acting clip'
+      'Observed close-up patient respiratory & diaphoresis cues'
     );
+    setDistressInspectorOpen(true);
     if (cameraFocusIdRef.current === 'patient_observe' && !pendingStationRef.current) {
       cueNurse('patient_observe');
-      setDistressVideoOpen(true);
     } else {
-      pendingDistressVideoRef.current = true;
+      pendingDistressVideoRef.current = false;
       pendingStationRef.current = 'patient_observe';
       setCameraFocusId('patient_observe');
       setCameraTrigger((t) => t + 1);
     }
   }, [cueNurse, recordEvent]);
+
+  const handleWatchDistressFilm = useCallback(() => {
+    if (examStageRef.current !== EXAM_STAGES.BEDSIDE) return;
+    setDistressPopoverVisible(false);
+    setActiveDrawerId(null);
+    setWristbandArtifactOpen(false);
+    setDistressInspectorOpen(false);
+    setDistressVideoOpen(true);
+  }, []);
 
   const handleNurseDepart = useCallback(() => {
     setActiveDrawerId(null);
@@ -1071,30 +1108,54 @@ export default function StudyAiExamPage() {
                 </div>
 
                 {distressEmoteActive && !distressPopoverVisible && (
-                  <button
-                    type="button"
-                    onClick={handleInspectDistress}
-                    title="Walk nurse to patient's head & watch close-up bedside observation video"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      height: '31px',
-                      padding: '0 12px',
-                      borderRadius: '999px',
-                      background: 'rgba(232, 176, 75, 0.14)',
-                      border: '1px solid #e8b04b',
-                      color: '#fde68a',
-                      fontSize: '12px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <span>😮‍💨</span>
-                    <span>{isPhone ? 'Cue ▶' : 'Observe patient ▶'}</span>
-                  </button>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={handleInspectDistress}
+                      title="Open 3D Patient Cue Inspector"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        height: '31px',
+                        padding: '0 12px',
+                        borderRadius: '999px',
+                        background: distressInspectorOpen ? '#143528' : 'rgba(232, 176, 75, 0.14)',
+                        border: distressInspectorOpen ? '1px solid #6fd1a9' : '1px solid #e8b04b',
+                        color: distressInspectorOpen ? '#6fd1a9' : '#fde68a',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <span>😮‍💨</span>
+                      <span>{isPhone ? '3D Cue' : '3D Patient Cue'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleWatchDistressFilm}
+                      title="Watch 1080p Live-Action Patient Observation Film"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        height: '31px',
+                        padding: '0 11px',
+                        borderRadius: '999px',
+                        background: 'rgba(232, 176, 75, 0.18)',
+                        border: '1px solid #e8b04b',
+                        color: '#fde68a',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <span>▶</span>
+                      <span>{isPhone ? 'Film' : 'Live Film'}</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1497,7 +1558,7 @@ export default function StudyAiExamPage() {
           </div>
 
           {/* SCREEN POP-OVER EMOTE TOAST FOR SUBTLE PATIENT DETERIORATION */}
-          {distressPopoverVisible && !distressVideoOpen && (
+          {distressPopoverVisible && !distressVideoOpen && !distressInspectorOpen && (
             <PatientDistressPopover
               onInspect={handleInspectDistress}
               onDismiss={() => setDistressPopoverVisible(false)}
@@ -1505,10 +1566,27 @@ export default function StudyAiExamPage() {
             />
           )}
 
+          {/* 3D ROTATING PATIENT DISTRESS CUE INSPECTOR (separate from Wristband!) */}
+          {distressInspectorOpen && activeDrawerId !== 'wristband' && !distressVideoOpen && (
+            <PatientDistressInspector3D
+              vitals={vitals}
+              onWatchVideo={handleWatchDistressFilm}
+              onClose={() => setDistressInspectorOpen(false)}
+              hasSideDrawer={Boolean(activeDrawerId)}
+              isMobile={isPhone}
+            />
+          )}
+
           {/* CLOSE-UP PATIENT ACTING CINEMA VIDEO MODAL */}
           <DeteriorationCinemaModal
             open={distressVideoOpen}
             onClose={() => setDistressVideoOpen(false)}
+            onOpen3DInspector={() => {
+              setDistressVideoOpen(false);
+              setActiveDrawerId(null);
+              setWristbandArtifactOpen(false);
+              setDistressInspectorOpen(true);
+            }}
           />
 
           {/* 3D ROTATING WRISTBAND ARTIFACT INSPECTOR (triggers alongside the Patient Wrist sidebar) */}

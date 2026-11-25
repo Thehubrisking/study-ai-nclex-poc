@@ -1816,12 +1816,94 @@ const _yAxis = new THREE.Vector3(0, 1, 0);
 const PATIENT_GLB_URL = '/models/patient.glb?v=draped_blink_v2';
 const PATIENT_SCALE = 1.18;
 
+/**
+ * Adds real-world physiological dark-skin distress cues (glistening clammy diaphoretic forehead/temple
+ * micro-beads + subtle pale ashen-greyish lip mucosal pallor, ZERO artificial blue light) to the 3D bedside patient.
+ */
+function enhanceBedsidePatientSkin(mat, distressUniform) {
+  if (mat.userData.enhancedDistressSkin) return;
+  mat.userData.enhancedDistressSkin = true;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDistress = distressUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying float vSweatZone;
+        varying float vLipZone;
+        varying vec3 vBindFacePos;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vBindFacePos = position.xyz;
+        float swY = smoothstep(1.628, 1.678, position.y) * (1.0 - smoothstep(1.805, 1.848, position.y));
+        float swZ = smoothstep(0.030, 0.086, position.z);
+        float swX = 1.0 - smoothstep(0.056, 0.094, abs(position.x));
+        vSweatZone = clamp(swY * swZ * swX, 0.0, 1.0);
+
+        float lpY = smoothstep(1.615, 1.623, position.y) * (1.0 - smoothstep(1.644, 1.655, position.y));
+        float lpZ = smoothstep(0.096, 0.112, position.z);
+        float lpX = 1.0 - smoothstep(0.021, 0.035, abs(position.x));
+        vLipZone = clamp(lpY * lpZ * lpX, 0.0, 1.0);`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uDistress;
+        varying float vSweatZone;
+        varying float vLipZone;
+        varying vec3 vBindFacePos;
+
+        float bedsideSweatHash(vec3 p) {
+          p = fract(p * vec3(443.897, 441.423, 437.195));
+          p += dot(p, p.yzx + 19.19);
+          return fract((p.x + p.y) * p.z);
+        }`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        if (uDistress > 0.01 && vLipZone > 0.01) {
+          float lipLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 ashenMucosa = vec3(lipLum * 1.15, lipLum * 1.16, lipLum * 1.20);
+          diffuseColor.rgb = mix(diffuseColor.rgb, ashenMucosa, vLipZone * uDistress * 0.72);
+        }`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        if (uDistress > 0.01 && vSweatZone > 0.01) {
+          vec3 cellA = floor(vBindFacePos * 310.0);
+          float dropA = step(0.76, bedsideSweatHash(cellA)) * smoothstep(0.34, 0.08, length(fract(vBindFacePos * 310.0) - 0.5));
+          roughnessFactor = mix(roughnessFactor, 0.34, vSweatZone * uDistress * 0.70);
+          roughnessFactor = mix(roughnessFactor, 0.06, dropA * vSweatZone * uDistress * 0.90);
+        }`
+      )
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        if (uDistress > 0.01 && vSweatZone > 0.01) {
+          float ndv = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+          float fresnel = pow(1.0 - ndv, 3.2);
+          reflectedLight.indirectSpecular += vec3(0.95, 0.98, 1.0) * fresnel * 0.075 * vSweatZone * uDistress;
+        }`
+      );
+  };
+  mat.customProgramCacheKey = () => 'bedside_patient_distress_skin_v1';
+  mat.needsUpdate = true;
+}
+
 function PatientAndWristband({
   bedAngle,
   o2Device,
   verifiedId,
   hemorrhageShock = false,
   crystalloidBolus = false,
+  distressEmoteVisible = false,
+  nurseStateRef,
   vitals,
   monitorConnected = true,
   verbalCues,
@@ -1834,6 +1916,11 @@ function PatientAndWristband({
   const materials = useRef([]);
   const bonesRef = useRef({});
   const currAngleRef = useRef(0);
+  const distressUniformRef = useRef({ value: 0 });
+  const trackHeadYawRef = useRef(0.32);
+  const trackHeadPitchRef = useRef(0.24);
+  const trackEyeYawRef = useRef(0.08);
+  const trackEyePitchRef = useRef(0.22);
   const headOverlayRef = useRef();
   const leftWristRef = useRef();
   const rightHandIvRef = useRef();
@@ -1930,6 +2017,7 @@ function PatientAndWristband({
             mat.roughness = 0.35;
             mat.metalness = 0.0;
           } else {
+            enhanceBedsidePatientSkin(mat, distressUniformRef.current);
             skinMats.push(mat);
           }
         }
@@ -1976,12 +2064,23 @@ function PatientAndWristband({
     // 1. Subtle natural pallor & diaphoretic skin moisture (zero artificial blue emissive cast on dark skin!)
     const t = THREE.MathUtils.clamp((94 - live.spo2) / 14, 0, 1);
     const pallor = crystalloidBolus ? 0.02 : hemorrhageShock ? 0.08 : 0.04;
-    _tint.setRGB(
-      1 - 0.06 * t - pallor * 0.03,
-      1 - 0.06 * t - pallor * 0.03,
-      1 - 0.05 * t - pallor * 0.02
+    const isBradypneic = live.rr <= 10;
+    const videoDistressActive =
+      (Boolean(distressEmoteVisible) || isBradypneic || hemorrhageShock) &&
+      vitals?.patient_status !== 'STABILIZED';
+    distressUniformRef.current.value = THREE.MathUtils.lerp(
+      distressUniformRef.current.value,
+      videoDistressActive ? 1.0 : 0.0,
+      Math.min(1, delta * 1.6)
     );
-    const targetRoughness = crystalloidBolus ? 0.88 : hemorrhageShock ? 0.72 : 0.82;
+    const dBlend = distressUniformRef.current.value;
+
+    _tint.setRGB(
+      1 - 0.05 * t - pallor * 0.03,
+      1 - 0.05 * t - pallor * 0.03,
+      1 - 0.04 * t - pallor * 0.02
+    );
+    const targetRoughness = crystalloidBolus ? 0.86 : hemorrhageShock ? 0.72 : 0.80;
     for (const m of materials.current) {
       m.color.copy(_tint);
       m.roughness = targetRoughness;
@@ -1990,56 +2089,111 @@ function PatientAndWristband({
       }
     }
 
-    // 2. Synchronized Fowler's spine articulation (0.76x matching backrestRef) + relaxed pillow rest
+    // 2. Synchronized Fowler's spine articulation (0.76x matching backrestRef) + video-matched labored gasping
     currAngleRef.current = THREE.MathUtils.lerp(
       currAngleRef.current,
       bedAngle,
       Math.min(1, delta * 18)
     );
     const elevRad = THREE.MathUtils.degToRad(currAngleRef.current);
-    const breath = (Math.sin(live.respPhase - Math.PI / 2) + 1) / 2;
-    const isBradypneic = live.rr <= 10;
-    const isDistressed = live.spo2 < 92 && !isBradypneic;
-    const breathAmp = isBradypneic ? 0.014 : isDistressed ? 0.045 : 0.028;
+    const calmBreath = (Math.sin(live.respPhase - Math.PI / 2) + 1) / 2;
+    const respNorm = (((live.respPhase / (Math.PI * 2)) % 1) + 1) % 1;
+    let gaspWave = 0;
+    if (respNorm < 0.32) {
+      gaspWave = Math.sin((respNorm / 0.32) * (Math.PI * 0.5));
+    } else if (respNorm < 0.44) {
+      gaspWave = 1.0 - 0.12 * ((respNorm - 0.32) / 0.12);
+    } else {
+      gaspWave = 0.88 * Math.pow(1.0 - (respNorm - 0.44) / 0.56, 1.85);
+    }
+    const breath = THREE.MathUtils.lerp(calmBreath, gaspWave, dBlend);
+    const breathAmp = THREE.MathUtils.lerp(0.026, isBradypneic ? 0.044 : 0.052, dBlend);
 
-    // Patient's head rests turned naturally toward his LEFT side (+ry in Character Space)
-    const headRestlessYaw = isBradypneic
-      ? 0.62
-      : isDistressed
-        ? 0.52 + Math.sin(elapsed * 1.45) * 0.1
-        : 0.48 + Math.sin(elapsed * 0.45) * 0.035;
-    const spasm = isDistressed ? (Math.sin(elapsed * 2.9) + 1) * 0.5 : 0;
+    // 3. Natural Nurse-Tracking Head & Eye Orientation (looks toward the nurse instead of staring into the sky!)
+    const nPos = nurseStateRef?.current?.pos;
+    const nx = nPos ? nPos.x : 0.25;
+    const ny = 1.52;
+    const nz = nPos ? nPos.z : 2.35;
+    const headWorldX = 0.0;
+    const headWorldY = 1.29 + Math.sin(elevRad) * 0.42;
+    const headWorldZ = -0.82 + (1 - Math.cos(elevRad)) * 0.35;
+    const vx = nx - headWorldX;
+    const vy = ny - headWorldY;
+    const vz = nz - headWorldZ;
+    const vDist = Math.hypot(vx, vy, vz) || 1;
+    const ux = vx / vDist;
+    const uy = vy / vDist;
+    const uz = vz / vDist;
+
+    // Transform nurse direction into Patient Upper-Spine Space (+X = patient left, +Y = crown, +Z = chest/nose forward)
+    const spineSlope = elevRad * 0.76;
+    const tx = ux;
+    const ty = uy * Math.sin(spineSlope) - uz * Math.cos(spineSlope);
+    const tz = uy * Math.cos(spineSlope) + uz * Math.sin(spineSlope);
+
+    // Nurse bearing: +ry turns head toward patient's LEFT (+X doorway/monitor/chart); -ry turns toward RIGHT (IV/surgical)
+    const rawNurseYaw = Math.atan2(tx, Math.max(0.42, tz + 0.48));
+    // Track ~68% of nurse movement when alert/idle, becoming heavier & more left-settled (+0.40) during opioid sedation
+    const alertTargetYaw = THREE.MathUtils.clamp(rawNurseYaw * 0.72 + 0.12, -0.52, 0.74);
+    const sedatedTargetYaw = THREE.MathUtils.clamp(0.42 + rawNurseYaw * 0.26, -0.18, 0.68);
+    const desiredHeadYaw =
+      THREE.MathUtils.lerp(alertTargetYaw, sedatedTargetYaw, dBlend) +
+      Math.sin(elapsed * 0.42) * 0.022;
+
+    // Positive rx flexes chin forward off the ceiling/sky so the pillow cradles the head looking toward the nurse!
+    const downNeed = THREE.MathUtils.clamp(-ty, 0, 1);
+    const desiredHeadPitch = THREE.MathUtils.clamp(
+      0.22 + downNeed * 0.14 - elevRad * 0.10 - dBlend * 0.04,
+      0.08,
+      0.36
+    );
+    const trackSpeed = THREE.MathUtils.lerp(2.2, 0.75, dBlend);
+    trackHeadYawRef.current = THREE.MathUtils.lerp(
+      trackHeadYawRef.current,
+      desiredHeadYaw,
+      Math.min(1, delta * trackSpeed)
+    );
+    trackHeadPitchRef.current = THREE.MathUtils.lerp(
+      trackHeadPitchRef.current,
+      desiredHeadPitch,
+      Math.min(1, delta * trackSpeed)
+    );
+
+    const curHeadYaw = trackHeadYawRef.current;
+    const curHeadPitch = trackHeadPitchRef.current;
 
     setNurseCharRotation(B.CC_Base_Waist, elevRad * 0.34, 0, 0);
     setNurseCharRotation(
       B.CC_Base_Spine01,
-      elevRad * 0.25 + breath * breathAmp + spasm * 0.022,
-      isDistressed ? Math.sin(elapsed * 1.2) * 0.02 : 0,
-      0.015
+      elevRad * 0.25 + breath * breathAmp,
+      dBlend * Math.sin(elapsed * 0.85) * 0.015,
+      0.014
     );
-    setNurseCharRotation(B.CC_Base_Spine02, elevRad * 0.17 + breath * breathAmp * 0.9, 0, -0.01);
+    setNurseCharRotation(B.CC_Base_Spine02, elevRad * 0.17 + breath * breathAmp * 0.92, 0, -0.01);
 
-    // Relaxed dropped shoulders resting back against the pillow/mattress
-    setNurseCharRotation(B.CC_Base_L_Clavicle, -0.04 + breath * breathAmp * 0.35, 0.05, -0.06);
-    setNurseCharRotation(B.CC_Base_R_Clavicle, -0.04 + breath * breathAmp * 0.35, -0.05, 0.06);
+    // Relaxed dropped shoulders with accessory clavicle elevation during labored gasping
+    const clavLift = breath * THREE.MathUtils.lerp(0.01, 0.042, dBlend);
+    setNurseCharRotation(B.CC_Base_L_Clavicle, -0.04 + clavLift, 0.05, -0.06);
+    setNurseCharRotation(B.CC_Base_R_Clavicle, -0.04 + clavLift, -0.05, 0.06);
 
-    // Neck & head turn smoothly to the LEFT side and sink gently backward into the sculpted pillow cradle
+    // Neck & head propped forward toward nurse (+rx) and tracking nurse movement smoothly across pillow
+    const gaspHeadExtend = dBlend * breath * 0.046;
     setNurseCharRotation(
       B.CC_Base_NeckTwist01,
-      -0.05 + elevRad * 0.04 - (isBradypneic ? 0.04 : 0),
-      headRestlessYaw * 0.55,
-      isBradypneic ? 0.09 : 0.06
+      curHeadPitch * 0.48 - gaspHeadExtend * 0.35,
+      curHeadYaw * 0.54,
+      0.04 + dBlend * 0.03
     );
     setNurseCharRotation(
       B.CC_Base_Head,
-      -0.03 + elevRad * 0.04 - breath * 0.02,
-      headRestlessYaw * 0.45,
-      0.05
+      curHeadPitch * 0.52 - gaspHeadExtend * 0.65,
+      curHeadYaw * 0.46,
+      0.03 + dBlend * 0.02
     );
 
-    // 3. Softened brow, heavy post-op resting eyelids, natural human blinks & calm eye micro-gaze
+    // 4. Softened brow, video-matched opioid sedation droop / weak arousal flutter & nurse-tracking eye lead
     if (B.CC_Base_BrowRelax) {
-      setNurseCharRotation(B.CC_Base_BrowRelax, isBradypneic ? 0.11 : 0.085, 0, 0);
+      setNurseCharRotation(B.CC_Base_BrowRelax, 0.085 + dBlend * 0.03 - dBlend * breath * 0.018, 0, 0);
     }
 
     const bs = blinkStateRef.current;
@@ -2051,21 +2205,34 @@ function PatientAndWristband({
       } else {
         bs.doubleQueued = false;
         const jitter = ((Math.sin(elapsed * 78.233) * 19341.7) % 1 + 1) % 1;
-        bs.nextBlinkAt = elapsed + (isBradypneic ? 4.4 : 2.6) + jitter * 2.8;
+        bs.nextBlinkAt = elapsed + 2.7 + jitter * 2.6;
       }
     }
     const dtBlink = elapsed - bs.blinkStart;
     let blinkWave = 0;
     if (dtBlink >= 0 && dtBlink < 0.095) {
       blinkWave = Math.sin((dtBlink / 0.095) * (Math.PI * 0.5));
-    } else if (dtBlink >= 0.095 && dtBlink < 0.29) {
+    } else if (dtBlink >= 0 && dtBlink < 0.29) {
       const u = (dtBlink - 0.095) / 0.195;
       blinkWave = Math.cos(u * (Math.PI * 0.5));
     }
 
-    // Never stare wide-eyed: heavy sedated lids when bradypneic, drowsy post-op lids at arrival/hypoxia, soft calm lids when stable
-    const baseDroop = isBradypneic ? 0.78 : isDistressed || !monitorConnected ? 0.42 : 0.26;
-    const lidClose = Math.max(baseDroop, blinkWave);
+    // Video-matched drowsy flutter when distressed (heavy 0.82 droop with periodic weak half-open arousal flutter,
+    // plus brief sluggish half-opening when the nurse leans in close to bedside < 1.35m!)
+    const nurseNearBoost = vDist < 1.35 ? 0.14 : 0.0;
+    const flutterPhase = (elapsed % 4.1) / 4.1;
+    let distressFlutterLift = 0;
+    if (flutterPhase > 0.62 && flutterPhase < 0.84) {
+      const fu = (flutterPhase - 0.62) / 0.22;
+      distressFlutterLift = Math.sin(fu * Math.PI) * (0.32 + 0.05 * Math.sin(elapsed * 18.5));
+    }
+    const calmLidClose = Math.max(0.24, blinkWave);
+    const distressedLidClose = THREE.MathUtils.clamp(
+      0.83 - distressFlutterLift - nurseNearBoost,
+      0.40,
+      0.92
+    );
+    const lidClose = THREE.MathUtils.lerp(calmLidClose, distressedLidClose, dBlend);
     const upperLidRx = lidClose * 0.62;
     const lowerLidRx = -lidClose * 0.14;
     setNurseCharRotation(B.CC_Base_L_UpperLid, upperLidRx, 0, 0);
@@ -2073,16 +2240,37 @@ function PatientAndWristband({
     setNurseCharRotation(B.CC_Base_L_LowerLid, lowerLidRx, 0, 0);
     setNurseCharRotation(B.CC_Base_R_LowerLid, lowerLidRx, 0, 0);
 
-    // Soft downward/natural eye gaze drift instead of staring straight at the ceiling
-    const gazeDown = isBradypneic ? 0.18 : 0.11 + Math.sin(elapsed * 0.37) * 0.035;
-    const gazeYaw = Math.sin(elapsed * 0.53) * 0.055 + Math.sin(elapsed * 1.17) * 0.02;
-    setNurseCharRotation(B.CC_Base_L_Eye, gazeDown, gazeYaw, 0);
-    setNurseCharRotation(B.CC_Base_R_Eye, gazeDown, gazeYaw, 0);
+    // Eyes lead toward the nurse's live position (residual yaw + downward gaze onto the nurse, never sky-staring)
+    const residNurseYaw = THREE.MathUtils.clamp(
+      (rawNurseYaw - curHeadYaw) * 0.65 + Math.sin(elapsed * 0.51) * 0.025,
+      -0.28,
+      0.28
+    );
+    const desiredEyePitch = THREE.MathUtils.clamp(
+      0.16 + downNeed * 0.14 - elevRad * 0.06,
+      0.08,
+      0.30
+    );
+    trackEyeYawRef.current = THREE.MathUtils.lerp(
+      trackEyeYawRef.current,
+      residNurseYaw,
+      Math.min(1, delta * 5.2)
+    );
+    trackEyePitchRef.current = THREE.MathUtils.lerp(
+      trackEyePitchRef.current,
+      desiredEyePitch,
+      Math.min(1, delta * 5.2)
+    );
+    setNurseCharRotation(B.CC_Base_L_Eye, trackEyePitchRef.current, trackEyeYawRef.current, 0);
+    setNurseCharRotation(B.CC_Base_R_Eye, trackEyePitchRef.current, trackEyeYawRef.current, 0);
 
-    // Subtle open-mouth breathing during bradypnea/hypoxia vs relaxed jaw when stabilized
+    // Open-mouth labored gasping synced with respiratory effort when distressed vs relaxed closed lips when calm
     if (B.CC_Base_JawRoot) {
-      const jawOpen = isBradypneic ? 0.13 + breath * 0.05 : isDistressed ? 0.07 + breath * 0.07 : 0.025;
+      const jawOpen = THREE.MathUtils.lerp(0.02, 0.13 + breath * 0.12, dBlend);
       setNurseCharRotation(B.CC_Base_JawRoot, jawOpen, 0, 0);
+      if (B.CC_Base_Teeth02) {
+        setNurseCharRotation(B.CC_Base_Teeth02, jawOpen * 0.85, 0, 0);
+      }
     }
 
     // 4. Pronated, palm-down forearms & hands resting flush and relaxed on the quilted bed pad across 0-60 deg Fowler's
@@ -3454,6 +3642,8 @@ const Room3D = React.memo(function Room3D({
                 verifiedId={verifiedId}
                 hemorrhageShock={hemorrhageShock}
                 crystalloidBolus={crystalloidBolus}
+                distressEmoteVisible={distressEmoteVisible}
+                nurseStateRef={nurseStateRef}
                 vitals={vitals}
                 monitorConnected={monitorConnected}
                 verbalCues={scenarioData.patient_verbal_cues}
